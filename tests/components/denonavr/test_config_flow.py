@@ -200,10 +200,7 @@ async def test_config_flow_manual_discover_2_success(hass: HomeAssistant) -> Non
 
 
 async def test_config_flow_manual_discover_error(hass: HomeAssistant) -> None:
-    """Failed flow manually initialized by the user.
-
-    Without the host specified and no receiver discovered.
-    """
+    """No receiver discovered shows the error, and entering a host succeeds."""
     result = await hass.config_entries.flow.async_init(
         DOMAIN, context={"source": config_entries.SOURCE_USER}
     )
@@ -224,6 +221,14 @@ async def test_config_flow_manual_discover_error(hass: HomeAssistant) -> None:
     assert result["type"] is FlowResultType.FORM
     assert result["step_id"] == "user"
     assert result["errors"] == {"base": "discovery_error"}
+
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"],
+        {CONF_HOST: TEST_HOST},
+    )
+
+    assert result["type"] is FlowResultType.CREATE_ENTRY
+    assert result["data"][CONF_HOST] == TEST_HOST
 
 
 async def test_config_flow_manual_host_no_serial(hass: HomeAssistant) -> None:
@@ -436,6 +441,35 @@ async def test_config_flow_ssdp(hass: HomeAssistant) -> None:
         CONF_SERIAL_NUMBER: TEST_SERIALNUMBER,
     }
     assert result["options"] == {CONF_USE_TELNET: True}
+
+
+async def test_config_flow_ssdp_already_configured(hass: HomeAssistant) -> None:
+    """A rediscovered receiver aborts and updates the host of its entry."""
+    config_entry = MockConfigEntry(
+        domain=DOMAIN,
+        unique_id=TEST_UNIQUE_ID,
+        data={CONF_HOST: TEST_HOST2},
+    )
+    config_entry.add_to_hass(hass)
+
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN,
+        context={"source": config_entries.SOURCE_SSDP},
+        data=SsdpServiceInfo(
+            ssdp_usn="mock_usn",
+            ssdp_st="mock_st",
+            ssdp_location=TEST_SSDP_LOCATION,
+            upnp={
+                ATTR_UPNP_MANUFACTURER: TEST_MANUFACTURER,
+                ATTR_UPNP_MODEL_NAME: TEST_MODEL,
+                ATTR_UPNP_SERIAL: TEST_SERIALNUMBER,
+            },
+        ),
+    )
+
+    assert result["type"] is FlowResultType.ABORT
+    assert result["reason"] == "already_configured"
+    assert config_entry.data[CONF_HOST] == TEST_HOST
 
 
 async def test_config_flow_ssdp_not_denon(hass: HomeAssistant) -> None:

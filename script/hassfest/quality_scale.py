@@ -248,7 +248,6 @@ INTEGRATIONS_WITHOUT_QUALITY_SCALE_FILE = [
     "deluge",
     "demo",
     "denon",
-    "denonavr",
     "derivative",
     "devialet",
     "device_sun_light_trigger",
