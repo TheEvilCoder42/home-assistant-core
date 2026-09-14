@@ -39,6 +39,12 @@ UNAVAILABLE_ON = (
     AvrIncompleteResponseError,
 )
 
+# A 403 answering a command is the receiver refusing that command, not an
+# unreachable receiver; a read's 403 still marks it unavailable.
+COMMAND_UNAVAILABLE_ON = tuple(
+    err for err in UNAVAILABLE_ON if err is not AvrForbiddenError
+)
+
 
 async def async_refresh_status(receiver: DenonAVR, *, force: bool = False) -> None:
     """Refresh general receiver status for every configured zone.
@@ -157,6 +163,9 @@ class DenonAvrDataUpdateCoordinator(DataUpdateCoordinator[None]):
         self.lock = lock
         self._refresh_fn = refresh_fn
         self._force_next_refresh = False
+        # The other coordinator on the same receiver, set once both exist, so
+        # a receiver dropping out logs once rather than once per coordinator.
+        self.peer: DenonAvrDataUpdateCoordinator | None = None
         self._force_refresh_lock = asyncio.Lock()
         self._forced_refresh_count = 0
         self._internal_listeners: list[CALLBACK_TYPE] = []
@@ -184,8 +193,7 @@ class DenonAvrDataUpdateCoordinator(DataUpdateCoordinator[None]):
         Not async_add_listener(): that starts the update interval for its
         first listener, which would poll with every entity disabled.
 
-        Runs on every refresh attempt and every out-of-band failure, so one
-        refresh can run it twice: callbacks must be idempotent.
+        Runs on every refresh attempt and every out-of-band failure.
         """
         self._internal_listeners.append(update_callback)
 
@@ -196,7 +204,7 @@ class DenonAvrDataUpdateCoordinator(DataUpdateCoordinator[None]):
         return _remove_listener
 
     @callback
-    def _async_notify_internal_listeners(self) -> None:
+    def async_notify_internal_listeners(self) -> None:
         """Run the integration's own callbacks."""
         for update_callback in list(self._internal_listeners):
             update_callback()
@@ -210,14 +218,7 @@ class DenonAvrDataUpdateCoordinator(DataUpdateCoordinator[None]):
         would leave the other coordinator available if it had recovered in
         between two of these failures.
         """
-        self._async_notify_internal_listeners()
-
-    @callback
-    @override
-    def async_update_listeners(self) -> None:
-        """Notify the entities, then the integration's own callbacks."""
-        super().async_update_listeners()
-        self._async_notify_internal_listeners()
+        self.async_notify_internal_listeners()
 
     async def async_refresh_forced(self) -> None:
         """Refresh immediately, bypassing the Telnet-healthy skip.
@@ -261,13 +262,39 @@ class DenonAvrDataUpdateCoordinator(DataUpdateCoordinator[None]):
 
 
 @callback
-def mark_unavailable(coordinator: DenonAvrDataUpdateCoordinator) -> None:
+def mark_unavailable(
+    coordinator: DenonAvrDataUpdateCoordinator, err: Exception
+) -> None:
     """Mark a coordinator unavailable after a confirmed connectivity failure.
 
     For failures outside the refresh cycle, such as a command of an entity's
     own, so availability reflects them without waiting for the next poll.
-    Notifies even when already unavailable: the other coordinator may have
-    recovered since the last failure.
+    Logged only when the receiver drops: a failure the other coordinator
+    already has was logged there. Notifies even when already unavailable:
+    the other coordinator may have recovered since the last failure.
     """
-    coordinator.last_update_success = False
+    if coordinator.last_update_success and (
+        coordinator.peer is None or coordinator.peer.last_update_success
+    ):
+        coordinator.async_set_update_error(err)
+    else:
+        coordinator.last_exception = err
+        coordinator.last_update_success = False
+        coordinator.async_update_listeners()
+    coordinator.async_notify_internal_listeners()
+
+
+@callback
+def mark_available(coordinator: DenonAvrDataUpdateCoordinator) -> None:
+    """Clear a failure once the receiver answers outside the refresh cycle.
+
+    Not async_set_updated_data(): that cancels a pending confirmation refresh.
+    Logs the recovery in a poll's words, once the other coordinator is back
+    too, as mark_unavailable() logs the drop once.
+    """
+    recovered = not coordinator.last_update_success
+    coordinator.last_update_success = True
     coordinator.async_update_listeners()
+    coordinator.async_notify_internal_listeners()
+    if recovered and (coordinator.peer is None or coordinator.peer.last_update_success):
+        coordinator.logger.info("Fetching %s data recovered", coordinator.name)

@@ -180,7 +180,7 @@ async def test_a_failure_while_waiting_for_the_lock_forces_the_read(
     async with coordinator.lock:
         refresh = hass.async_create_task(coordinator.async_refresh())
         await asyncio.sleep(0)
-        mark_unavailable(coordinator)
+        mark_unavailable(coordinator, AvrNetworkError("Connection refused", "GET"))
 
     await refresh
 
@@ -236,20 +236,20 @@ async def test_internal_listener_does_not_start_the_poll(
     refresh_fn.assert_awaited()
 
 
-async def test_internal_listener_is_still_notified(hass: HomeAssistant) -> None:
+async def test_internal_listener_runs_once_per_refresh(hass: HomeAssistant) -> None:
     """Not polling on its own must not cost it the updates it exists for."""
-    called = False
+    calls = 0
 
     def _record() -> None:
-        nonlocal called
-        called = True
+        nonlocal calls
+        calls += 1
 
     coordinator = _coordinator(hass, AsyncMock())
     coordinator.async_add_internal_listener(_record)
 
-    coordinator.async_update_listeners()
+    await coordinator.async_refresh()
 
-    assert called
+    assert calls == 1
 
 
 async def test_removing_an_internal_listener_stops_its_updates(
@@ -264,10 +264,10 @@ async def test_removing_an_internal_listener_stops_its_updates(
 
     coordinator = _coordinator(hass, AsyncMock())
     remove = coordinator.async_add_internal_listener(_record)
-    coordinator.async_update_listeners()
+    await coordinator.async_refresh()
 
     remove()
-    coordinator.async_update_listeners()
+    await coordinator.async_refresh()
 
     assert calls == 1
 

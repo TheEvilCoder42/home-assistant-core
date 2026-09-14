@@ -6,7 +6,7 @@ from unittest.mock import MagicMock, create_autospec, patch
 
 from denonavr import DenonAVR
 from denonavr.const import MAIN_ZONE, POWER_OFF, POWER_ON, POWER_STANDBY, ZONE2
-from denonavr.exceptions import AvrCommandError, AvrNetworkError
+from denonavr.exceptions import AvrCommandError, AvrForbiddenError, AvrNetworkError
 from freezegun.api import FrozenDateTimeFactory
 import pytest
 from syrupy.assertion import SnapshotAssertion
@@ -235,7 +235,7 @@ async def test_select_option(
 
 
 @pytest.mark.parametrize(
-    ("error", "available", "error_message"),
+    ("error", "available", "error_message", "logs"),
     [
         pytest.param(
             AvrCommandError(
@@ -244,12 +244,21 @@ async def test_select_option(
             ),
             True,
             "Reference level could only be set when DynamicEQ is active",
+            0,
             id="rejected_command",
+        ),
+        pytest.param(
+            AvrForbiddenError("Forbidden", "SetAudyssey"),
+            True,
+            "Forbidden",
+            0,
+            id="forbidden",
         ),
         pytest.param(
             AvrNetworkError("Connection refused", "SetAudyssey"),
             False,
             "Connection refused",
+            1,
             id="unreachable_receiver",
         ),
     ],
@@ -258,14 +267,17 @@ async def test_select_option_raises_on_avr_error(
     hass: HomeAssistant,
     client: MagicMock,
     entity_registry: er.EntityRegistry,
+    caplog: pytest.LogCaptureFixture,
     error: Exception,
     available: bool,
     error_message: str,
+    logs: int,
 ) -> None:
     """A receiver error while selecting is surfaced to the user.
 
     A connectivity failure marks the status coordinator, and with Telnet
-    down and no Audyssey poll of its own the Audyssey one follows.
+    down and no Audyssey poll of its own the Audyssey one follows. It is
+    logged once, not once per coordinator.
     """
     entry = await setup_denonavr(hass)
     entity_id = get_entity_id(entity_registry, SELECT_DOMAIN, "reference_level_offset")
@@ -283,6 +295,7 @@ async def test_select_option_raises_on_avr_error(
     assert entry.runtime_data.coordinator.last_update_success is available
     assert entry.runtime_data.audyssey_coordinator.last_update_success is available
     assert (hass.states.get(entity_id).state != STATE_UNAVAILABLE) is available
+    assert caplog.text.count("Error requesting denonavr_") == logs
 
 
 async def test_unavailable_after_connectivity_error_then_recovers(
@@ -553,7 +566,12 @@ async def test_telnet_push_updates_entities_without_media_player(
     [
         pytest.param(lambda coordinator: None, id="healthy"),
         # The push then also clears the failure.
-        pytest.param(mark_unavailable, id="after_failure"),
+        pytest.param(
+            lambda coordinator: mark_unavailable(
+                coordinator, AvrNetworkError("Connection refused", "GET")
+            ),
+            id="after_failure",
+        ),
     ],
 )
 async def test_telnet_push_keeps_an_actions_confirmation_refresh(

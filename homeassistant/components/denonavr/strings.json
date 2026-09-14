@@ -100,11 +100,20 @@
     }
   },
   "exceptions": {
+    "command_failed": {
+      "message": "Command failed on {host}: {error}"
+    },
+    "communication_error": {
+      "message": "Error communicating with {host}: {error}"
+    },
     "receiver_off": {
       "message": "Cannot change {entity_id} while the zone it applies to is off"
     },
     "set_failed": {
       "message": "Setting {entity_id} to {value} failed on {host}: {error}"
+    },
+    "update_not_complete": {
+      "message": "Update of {host} not complete: {error}"
     }
   },
   "options": {

@@ -37,6 +37,7 @@ from .coordinator import (
     DenonAvrDataUpdateCoordinator,
     async_refresh_audyssey,
     async_refresh_status,
+    mark_available,
     mark_unavailable,
 )
 from .receiver import ConnectDenonAVR
@@ -131,6 +132,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: DenonavrConfigEntry) -> 
         update_interval=update_interval if update_audyssey else None,
         refresh_fn=async_refresh_audyssey,
     )
+    coordinator.peer = audyssey_coordinator
+    audyssey_coordinator.peer = coordinator
 
     @callback
     def _propagate_connectivity_to_audyssey() -> None:
@@ -147,6 +150,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: DenonavrConfigEntry) -> 
             return
         if audyssey_coordinator.last_update_success != coordinator.last_update_success:
             audyssey_coordinator.last_update_success = coordinator.last_update_success
+            audyssey_coordinator.last_exception = coordinator.last_exception
             audyssey_coordinator.async_update_listeners()
 
     entry.async_on_unload(
@@ -167,7 +171,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: DenonavrConfigEntry) -> 
             and not coordinator.polls
             and not (receiver.telnet_connected and receiver.telnet_healthy)
         ):
-            mark_unavailable(coordinator)
+            err = audyssey_coordinator.last_exception
+            assert isinstance(err, Exception)
+            mark_unavailable(coordinator, err)
 
     entry.async_on_unload(
         audyssey_coordinator.async_add_internal_listener(
@@ -192,9 +198,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: DenonavrConfigEntry) -> 
         and a push clearing it would make it skip and hide an Audyssey-only
         HTTP failure behind stale values.
         """
-        if not audyssey_coordinator.polls:
-            audyssey_coordinator.last_update_success = True
-        audyssey_coordinator.async_update_listeners()
+        if audyssey_coordinator.polls:
+            audyssey_coordinator.async_update_listeners()
+        else:
+            mark_available(audyssey_coordinator)
 
     receiver.register_callback(AUDYSSEY_TELNET_EVENT, _telnet_notify_audyssey)
     entry.async_on_unload(
@@ -210,9 +217,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: DenonavrConfigEntry) -> 
         Its poll skips while Telnet is healthy, so nothing else would follow
         a push.
 
-        A push is the receiver answering, so it clears a failure. Not
-        async_set_updated_data(): that cancels an action's pending
-        confirmation refresh.
+        A push is the receiver answering, so it clears a failure, poll or
+        not: healthy Telnet keeps the status current.
         """
         # A now-playing or HD Radio change arrives as one event per field:
         # notifying on each would publish a new title with the old artist.
@@ -220,8 +226,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: DenonavrConfigEntry) -> 
             event == "HD" and not parameter.startswith("ALBUM")
         ):
             return
-        coordinator.last_update_success = True
-        coordinator.async_update_listeners()
+        mark_available(coordinator)
 
     receiver.register_callback(ALL_TELNET_EVENTS, _telnet_notify_status)
     entry.async_on_unload(
