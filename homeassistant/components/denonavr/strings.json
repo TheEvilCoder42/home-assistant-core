@@ -2,11 +2,11 @@
   "config": {
     "abort": {
       "already_configured": "[%key:common::config_flow::abort::already_configured_device%]",
-      "cannot_connect": "Failed to connect, please try again, disconnecting mains power and Ethernet cables and reconnecting them may help",
       "not_denonavr_manufacturer": "Not a Denon AVR network receiver, discovered manufacturer did not match",
       "not_denonavr_missing": "Not a Denon AVR network receiver, discovery information not complete"
     },
     "error": {
+      "cannot_connect": "Failed to connect, please try again, disconnecting mains power and Ethernet cables and reconnecting them may help",
       "discovery_error": "Failed to discover a Denon AVR network receiver"
     },
     "flow_title": "{name}",

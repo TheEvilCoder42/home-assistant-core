@@ -1,7 +1,7 @@
 """The tests for the denonavr select platform."""
 
 import asyncio
-from collections.abc import Callable, Generator
+from collections.abc import Callable
 from datetime import timedelta
 from unittest.mock import MagicMock, patch
 
@@ -10,12 +10,6 @@ from freezegun.api import FrozenDateTimeFactory
 import pytest
 from syrupy.assertion import SnapshotAssertion
 
-from homeassistant.components.denonavr.config_flow import (
-    CONF_MANUFACTURER,
-    CONF_SERIAL_NUMBER,
-    CONF_TYPE,
-    DOMAIN,
-)
 from homeassistant.components.denonavr.const import (
     CONF_UPDATE_AUDYSSEY,
     CONF_USE_TELNET,
@@ -27,8 +21,6 @@ from homeassistant.components.switch import DOMAIN as SWITCH_DOMAIN
 from homeassistant.const import (
     ATTR_ENTITY_ID,
     ATTR_OPTION,
-    CONF_HOST,
-    CONF_MODEL,
     SERVICE_SELECT_OPTION,
     STATE_UNAVAILABLE,
     Platform,
@@ -39,107 +31,15 @@ from homeassistant.helpers import entity_registry as er
 
 from . import (
     TEST_HOST,
-    TEST_MANUFACTURER,
-    TEST_MODEL,
-    TEST_NAME,
-    TEST_RECEIVER_TYPE,
-    TEST_SERIALNUMBER,
-    TEST_UNIQUE_ID,
-    TEST_ZONE,
+    advance_time,
     get_entity_id,
+    setup_denonavr,
+    wait_for_debounced_refresh,
 )
 
-from tests.common import MockConfigEntry, async_fire_time_changed, snapshot_platform
+from tests.common import async_fire_time_changed, snapshot_platform
 
 pytestmark = pytest.mark.usefixtures("fast_action_refresh_debounce")
-
-
-@pytest.fixture(name="client")
-def client_fixture() -> Generator[MagicMock]:
-    """Patch of client library for tests."""
-    with (
-        patch(
-            "homeassistant.components.denonavr.receiver.DenonAVR",
-            autospec=True,
-        ) as mock_client_class,
-        patch("homeassistant.components.denonavr.config_flow.denonavr.async_discover"),
-    ):
-        mock_client_class.return_value.name = TEST_NAME
-        mock_client_class.return_value.host = TEST_HOST
-        mock_client_class.return_value.model_name = TEST_MODEL
-        mock_client_class.return_value.serial_number = TEST_SERIALNUMBER
-        mock_client_class.return_value.manufacturer = TEST_MANUFACTURER
-        mock_client_class.return_value.receiver_type = TEST_RECEIVER_TYPE
-        mock_client_class.return_value.zone = TEST_ZONE
-        mock_client_class.return_value.input_func_list = []
-        mock_client_class.return_value.sound_mode_list = []
-        mock_client_class.return_value.zones = {"Main": mock_client_class.return_value}
-        mock_client_class.return_value.telnet_connected = False
-        mock_client_class.return_value.telnet_healthy = False
-
-        mock_client_class.return_value.dynamic_eq = True
-        mock_client_class.return_value.reference_level_offset = "0dB"
-        mock_client_class.return_value.dynamic_volume = "Off"
-        mock_client_class.return_value.multi_eq = "Reference"
-        mock_client_class.return_value.multi_eq_setting_list = [
-            "Off",
-            "Flat",
-            "L/R Bypass",
-            "Reference",
-            "Manual",
-        ]
-        mock_client_class.return_value.eco_mode = "Auto"
-        mock_client_class.return_value.dimmer = "Bright"
-        mock_client_class.return_value.auto_standby = "OFF"
-        yield mock_client_class.return_value
-
-
-async def setup_denonavr(
-    hass: HomeAssistant,
-    options: dict[str, bool] | None = None,
-    pref_disable_polling: bool = False,
-) -> MockConfigEntry:
-    """Initialize the denonavr integration for tests."""
-    entry_data = {
-        CONF_HOST: TEST_HOST,
-        CONF_MODEL: TEST_MODEL,
-        CONF_TYPE: TEST_RECEIVER_TYPE,
-        CONF_MANUFACTURER: TEST_MANUFACTURER,
-        CONF_SERIAL_NUMBER: TEST_SERIALNUMBER,
-    }
-    mock_entry = MockConfigEntry(
-        domain=DOMAIN,
-        # What the config flow names it; the device takes it as its name
-        # when a test loads no media_player.
-        title=TEST_NAME,
-        unique_id=TEST_UNIQUE_ID,
-        data=entry_data,
-        options=options or {},
-        pref_disable_polling=pref_disable_polling,
-    )
-    mock_entry.add_to_hass(hass)
-    await hass.config_entries.async_setup(mock_entry.entry_id)
-    await hass.async_block_till_done()
-    return mock_entry
-
-
-async def _wait_for_debounced_refresh(hass: HomeAssistant) -> None:
-    """Let a coordinator's debounced confirmation refresh actually fire.
-
-    async_block_till_done() alone returns before the debouncer's own task
-    has run, so the sleep hands it the loop first.
-    """
-    await asyncio.sleep(0)
-    await hass.async_block_till_done()
-
-
-async def _advance(
-    hass: HomeAssistant, freezer: FrozenDateTimeFactory, seconds: float
-) -> None:
-    """Move the clock on and let whatever falls due run."""
-    freezer.tick(timedelta(seconds=seconds))
-    async_fire_time_changed(hass)
-    await hass.async_block_till_done()
 
 
 async def _select_option(hass: HomeAssistant, entity_id: str, option: str) -> None:
@@ -438,7 +338,7 @@ async def test_dimmer_refreshes_and_shows_new_state_immediately(
 
     await _select_option(hass, entity_id, "dark")
     # blocking=True returns before the debounced confirmation refresh runs.
-    await _wait_for_debounced_refresh(hass)
+    await wait_for_debounced_refresh(hass)
 
     # should_poll=False, so setup's refresh and this action's confirmation
     # are the only two reads.
@@ -456,12 +356,12 @@ async def test_eco_mode_and_auto_standby_also_refresh_immediately(
     await _select_option(
         hass, get_entity_id(entity_registry, SELECT_DOMAIN, "eco_mode"), "off"
     )
-    await _wait_for_debounced_refresh(hass)
+    await wait_for_debounced_refresh(hass)
 
     await _select_option(
         hass, get_entity_id(entity_registry, SELECT_DOMAIN, "auto_standby"), "15m"
     )
-    await _wait_for_debounced_refresh(hass)
+    await wait_for_debounced_refresh(hass)
 
     # One read per action: should_poll=False, so HA adds no post-call poll.
     assert client.async_update.await_count == baseline_calls + 2
@@ -483,7 +383,7 @@ async def test_reference_level_offset_always_refreshes_after_change(
     baseline_calls = client.async_update_audyssey.await_count
 
     await _select_option(hass, entity_id, "5db")
-    await _wait_for_debounced_refresh(hass)
+    await wait_for_debounced_refresh(hass)
 
     # Just one call, since this is the only entity acting - HA's own
     # post-service-call poll doesn't apply here (should_poll=False).
@@ -741,7 +641,7 @@ async def test_telnet_push_keeps_an_actions_confirmation_refresh(
     await _select_option(hass, entity_id, "dark")
     entry.runtime_data.coordinator.last_update_success = not status_failed
     fire_telnet_event("Main", "MV", "50")
-    await _wait_for_debounced_refresh(hass)
+    await wait_for_debounced_refresh(hass)
 
     assert entry.runtime_data.coordinator.last_update_success
     assert client.async_update.await_count == baseline_calls + 1
@@ -795,7 +695,7 @@ async def test_option_shown_immediately_even_if_refresh_reads_back_stale_value(
 
     await _select_option(hass, entity_id, "dark")
     # Let the debounced confirmation refresh run its stale read.
-    await _wait_for_debounced_refresh(hass)
+    await wait_for_debounced_refresh(hass)
 
     client.async_dimmer.assert_awaited_once_with("Dark")
     assert hass.states.get(entity_id).state == "dark"
@@ -833,7 +733,28 @@ async def test_pending_option_expires_instead_of_masking_forever(
     # The front panel changes it to something else entirely while the
     # override is pending.
     client.dimmer = "Dim"
-    await _advance(hass, freezer, PENDING_VALUE_TIMEOUT + 1)
+    await advance_time(hass, freezer, PENDING_VALUE_TIMEOUT + 1)
+
+    assert hass.states.get(entity_id).state == "dim"
+
+
+@pytest.mark.usefixtures("client")
+async def test_second_pending_value_cancels_first_ones_expiry_timer(
+    hass: HomeAssistant,
+    entity_registry: er.EntityRegistry,
+    freezer: FrozenDateTimeFactory,
+) -> None:
+    """A second command before the first's pending value expires restarts it.
+
+    Otherwise the first command's timer would drop the second's value early.
+    """
+    await setup_denonavr(hass)
+    entity_id = get_entity_id(entity_registry, SELECT_DOMAIN, "dimmer")
+
+    await _select_option(hass, entity_id, "dark")
+    await advance_time(hass, freezer, PENDING_VALUE_TIMEOUT / 2)
+    await _select_option(hass, entity_id, "dim")
+    await advance_time(hass, freezer, PENDING_VALUE_TIMEOUT / 2 + 1)
 
     assert hass.states.get(entity_id).state == "dim"
 
@@ -867,10 +788,10 @@ async def test_pending_expiry_reads_the_receiver(
 
     await _select_option(hass, entity_id, "dark")
     # Well short of the expiry, so only the confirming refresh runs.
-    await _advance(hass, freezer, 1)
+    await advance_time(hass, freezer, 1)
     calls_after_action = client.async_update.await_count
 
-    await _advance(hass, freezer, PENDING_VALUE_TIMEOUT)
+    await advance_time(hass, freezer, PENDING_VALUE_TIMEOUT)
 
     assert client.async_update.await_count == calls_after_action + 1
 
@@ -898,7 +819,7 @@ async def test_expiries_of_settings_changed_together_share_one_refresh(
     # Well short of the expiry, so only the confirming refreshes run and
     # the count below covers the two expiries alone. The receiver never
     # reports the new values, so both stay pending.
-    await _advance(hass, freezer, 1)
+    await advance_time(hass, freezer, 1)
     calls_after_actions = client.async_update_audyssey.await_count
 
     async def _suspending_update(*args: object, **kwargs: object) -> None:
@@ -908,7 +829,7 @@ async def test_expiries_of_settings_changed_together_share_one_refresh(
 
     client.async_update_audyssey.side_effect = _suspending_update
 
-    await _advance(hass, freezer, PENDING_VALUE_TIMEOUT + 1)
+    await advance_time(hass, freezer, PENDING_VALUE_TIMEOUT + 1)
 
     assert client.async_update_audyssey.await_count == calls_after_actions + 1
 

@@ -5,7 +5,7 @@ from typing import Any, override
 from urllib.parse import urlparse
 
 import denonavr
-from denonavr.exceptions import AvrNetworkError, AvrTimoutError
+from denonavr.exceptions import DenonAvrError
 import probatio
 
 from homeassistant.config_entries import (
@@ -130,21 +130,23 @@ class DenonAvrFlowHandler(ConfigFlow, domain=DOMAIN):
         errors = {}
         if user_input is not None:
             # check if IP address is set manually
-            if host := user_input.get(CONF_HOST):
+            if not (host := user_input.get(CONF_HOST)):
+                # discovery using denonavr library
+                self.d_receivers = await denonavr.async_discover()
+                # More than one receiver could be discovered by that method
+                if len(self.d_receivers) > 1:
+                    # show selection form
+                    return await self.async_step_select()
+                if self.d_receivers:
+                    host = self.d_receivers[0]["host"]
+
+            if not host:
+                errors["base"] = "discovery_error"
+            else:
                 self.host = host
-                return await self.async_step_connect()
-
-            # discovery using denonavr library
-            self.d_receivers = await denonavr.async_discover()
-            # More than one receiver could be discovered by that method
-            if len(self.d_receivers) == 1:
-                self.host = self.d_receivers[0]["host"]
-                return await self.async_step_connect()
-            if len(self.d_receivers) > 1:
-                # show selection form
-                return await self.async_step_select()
-
-            errors["base"] = "discovery_error"
+                if (result := await self._async_connect()) is not None:
+                    return result
+                errors["base"] = "cannot_connect"
 
         return self.async_show_form(
             step_id="user", data_schema=CONFIG_SCHEMA, errors=errors
@@ -157,7 +159,9 @@ class DenonAvrFlowHandler(ConfigFlow, domain=DOMAIN):
         errors: dict[str, str] = {}
         if user_input is not None:
             self.host = user_input["select_host"]
-            return await self.async_step_connect()
+            if (result := await self._async_connect()) is not None:
+                return result
+            errors["base"] = "cannot_connect"
 
         select_scheme = probatio.Schema(
             {
@@ -175,16 +179,20 @@ class DenonAvrFlowHandler(ConfigFlow, domain=DOMAIN):
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
         """Allow the user to confirm adding the device."""
+        errors: dict[str, str] = {}
         if user_input is not None:
-            return await self.async_step_connect()
+            if (result := await self._async_connect()) is not None:
+                return result
+            errors["base"] = "cannot_connect"
 
         self._set_confirm_only()
-        return self.async_show_form(step_id="confirm")
+        return self.async_show_form(step_id="confirm", errors=errors)
 
-    async def async_step_connect(
-        self, user_input: dict[str, Any] | None = None
-    ) -> ConfigFlowResult:
-        """Connect to the receiver."""
+    async def _async_connect(self) -> ConfigFlowResult | None:
+        """Connect to the receiver and create its entry.
+
+        None if it cannot be reached, for the calling step to show on its form.
+        """
         assert self.host
         connect_denonavr = ConnectDenonAVR(
             self.host,
@@ -198,10 +206,10 @@ class DenonAvrFlowHandler(ConfigFlow, domain=DOMAIN):
 
         try:
             success = await connect_denonavr.async_connect_receiver()
-        except AvrNetworkError, AvrTimoutError:
+        except DenonAvrError:
             success = False
         if not success:
-            return self.async_abort(reason="cannot_connect")
+            return None
         receiver = connect_denonavr.receiver
         assert receiver
 

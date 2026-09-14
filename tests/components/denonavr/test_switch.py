@@ -1,7 +1,7 @@
 """The tests for the denonavr switch platform."""
 
 import asyncio
-from collections.abc import Callable, Generator
+from collections.abc import Callable
 from datetime import timedelta
 from unittest.mock import MagicMock, patch
 
@@ -10,12 +10,6 @@ from freezegun.api import FrozenDateTimeFactory
 import pytest
 from syrupy.assertion import SnapshotAssertion
 
-from homeassistant.components.denonavr.config_flow import (
-    CONF_MANUFACTURER,
-    CONF_SERIAL_NUMBER,
-    CONF_TYPE,
-    DOMAIN,
-)
 from homeassistant.components.denonavr.const import (
     CONF_UPDATE_AUDYSSEY,
     PENDING_VALUE_TIMEOUT,
@@ -24,8 +18,6 @@ from homeassistant.components.select import DOMAIN as SELECT_DOMAIN
 from homeassistant.components.switch import DOMAIN as SWITCH_DOMAIN
 from homeassistant.const import (
     ATTR_ENTITY_ID,
-    CONF_HOST,
-    CONF_MODEL,
     SERVICE_TURN_OFF,
     SERVICE_TURN_ON,
     STATE_OFF,
@@ -37,83 +29,11 @@ from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import entity_registry as er
 
-from . import (
-    TEST_HOST,
-    TEST_MANUFACTURER,
-    TEST_MODEL,
-    TEST_NAME,
-    TEST_RECEIVER_TYPE,
-    TEST_SERIALNUMBER,
-    TEST_UNIQUE_ID,
-    TEST_ZONE,
-    get_entity_id,
-)
+from . import TEST_HOST, get_entity_id, setup_denonavr, wait_for_debounced_refresh
 
-from tests.common import MockConfigEntry, async_fire_time_changed, snapshot_platform
+from tests.common import async_fire_time_changed, snapshot_platform
 
 pytestmark = pytest.mark.usefixtures("fast_action_refresh_debounce")
-
-
-@pytest.fixture(name="client")
-def client_fixture() -> Generator[MagicMock]:
-    """Patch of client library for tests."""
-    with (
-        patch(
-            "homeassistant.components.denonavr.receiver.DenonAVR",
-            autospec=True,
-        ) as mock_client_class,
-        patch("homeassistant.components.denonavr.config_flow.denonavr.async_discover"),
-    ):
-        mock_client_class.return_value.name = TEST_NAME
-        mock_client_class.return_value.host = TEST_HOST
-        mock_client_class.return_value.model_name = TEST_MODEL
-        mock_client_class.return_value.serial_number = TEST_SERIALNUMBER
-        mock_client_class.return_value.manufacturer = TEST_MANUFACTURER
-        mock_client_class.return_value.receiver_type = TEST_RECEIVER_TYPE
-        mock_client_class.return_value.zone = TEST_ZONE
-        mock_client_class.return_value.input_func_list = []
-        mock_client_class.return_value.sound_mode_list = []
-        mock_client_class.return_value.zones = {"Main": mock_client_class.return_value}
-        mock_client_class.return_value.telnet_connected = False
-        mock_client_class.return_value.telnet_healthy = False
-        mock_client_class.return_value.dynamic_eq = True
-        yield mock_client_class.return_value
-
-
-async def setup_denonavr(
-    hass: HomeAssistant, options: dict | None = None
-) -> MockConfigEntry:
-    """Initialize the denonavr integration for tests."""
-    entry_data = {
-        CONF_HOST: TEST_HOST,
-        CONF_MODEL: TEST_MODEL,
-        CONF_TYPE: TEST_RECEIVER_TYPE,
-        CONF_MANUFACTURER: TEST_MANUFACTURER,
-        CONF_SERIAL_NUMBER: TEST_SERIALNUMBER,
-    }
-    mock_entry = MockConfigEntry(
-        domain=DOMAIN,
-        # What the config flow names it; the device takes it as its name
-        # when a test loads no media_player.
-        title=TEST_NAME,
-        unique_id=TEST_UNIQUE_ID,
-        data=entry_data,
-        options=options or {},
-    )
-    mock_entry.add_to_hass(hass)
-    await hass.config_entries.async_setup(mock_entry.entry_id)
-    await hass.async_block_till_done()
-    return mock_entry
-
-
-async def _wait_for_debounced_refresh(hass: HomeAssistant) -> None:
-    """Let a coordinator's debounced confirmation refresh actually fire.
-
-    async_block_till_done() alone returns before the debouncer's own task
-    has run, so the sleep hands it the loop first.
-    """
-    await asyncio.sleep(0)
-    await hass.async_block_till_done()
 
 
 @pytest.mark.usefixtures("client")
@@ -338,7 +258,7 @@ async def test_toggling_switch_updates_dependent_select(
         {ATTR_ENTITY_ID: switch_entity_id},
         blocking=True,
     )
-    await _wait_for_debounced_refresh(hass)
+    await wait_for_debounced_refresh(hass)
 
     assert hass.states.get(switch_entity_id).state == STATE_OFF
     assert hass.states.get(select_entity_id).state == STATE_UNAVAILABLE
@@ -393,7 +313,7 @@ async def test_turn_on_always_refreshes_audyssey_after_change(
         {ATTR_ENTITY_ID: entity_id},
         blocking=True,
     )
-    await _wait_for_debounced_refresh(hass)
+    await wait_for_debounced_refresh(hass)
 
     # Just one call, since this is the only entity acting - HA's own
     # post-service-call poll doesn't apply here (should_poll=False).
@@ -464,7 +384,7 @@ async def test_state_shown_immediately_even_if_refresh_reads_back_stale_value(
     )
     # Let the debounced confirmation refresh actually run its stale
     # read, rather than asserting before it's even had a chance to.
-    await _wait_for_debounced_refresh(hass)
+    await wait_for_debounced_refresh(hass)
 
     client.async_dynamic_eq_off.assert_awaited_once()
     assert hass.states.get(entity_id).state == STATE_OFF
@@ -521,6 +441,6 @@ async def test_telnet_push_keeps_a_pending_audyssey_refresh(
         blocking=True,
     )
     fire_telnet_event("Main", "PS", "")
-    await _wait_for_debounced_refresh(hass)
+    await wait_for_debounced_refresh(hass)
 
     assert client.async_update_audyssey.await_count == baseline_calls + 1
