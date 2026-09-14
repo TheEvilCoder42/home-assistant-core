@@ -168,6 +168,13 @@ def _coordinator(
     )
 
 
+async def _poll(hass: HomeAssistant, freezer: FrozenDateTimeFactory) -> None:
+    """Let a coordinator built by _coordinator() poll once."""
+    freezer.tick(timedelta(seconds=31))
+    async_fire_time_changed(hass)
+    await hass.async_block_till_done(wait_background_tasks=True)
+
+
 async def test_a_failure_while_waiting_for_the_lock_forces_the_read(
     hass: HomeAssistant, freezer: FrozenDateTimeFactory
 ) -> None:
@@ -184,7 +191,7 @@ async def test_a_failure_while_waiting_for_the_lock_forces_the_read(
         freezer.tick(timedelta(seconds=31))
         async_fire_time_changed(hass)
         await asyncio.sleep(0)
-        mark_unavailable(coordinator)
+        mark_unavailable(coordinator, AvrNetworkError("Connection refused", "GET"))
 
     await hass.async_block_till_done(wait_background_tasks=True)
 
@@ -240,24 +247,27 @@ async def test_internal_listener_does_not_start_the_poll(
     refresh_fn.assert_awaited()
 
 
-async def test_internal_listener_is_still_notified(hass: HomeAssistant) -> None:
+async def test_internal_listener_runs_once_per_refresh(
+    hass: HomeAssistant, freezer: FrozenDateTimeFactory
+) -> None:
     """Not polling on its own must not cost it the updates it exists for."""
-    called = False
+    calls = 0
 
     def _record() -> None:
-        nonlocal called
-        called = True
+        nonlocal calls
+        calls += 1
 
     coordinator = _coordinator(hass, AsyncMock())
     coordinator.async_add_internal_listener(_record)
+    coordinator.async_add_listener(lambda: None)
 
-    coordinator.async_update_listeners()
+    await _poll(hass, freezer)
 
-    assert called
+    assert calls == 1
 
 
 async def test_removing_an_internal_listener_stops_its_updates(
-    hass: HomeAssistant,
+    hass: HomeAssistant, freezer: FrozenDateTimeFactory
 ) -> None:
     """Config entry unload has to be able to detach the wiring again."""
     calls = 0
@@ -268,10 +278,11 @@ async def test_removing_an_internal_listener_stops_its_updates(
 
     coordinator = _coordinator(hass, AsyncMock())
     remove = coordinator.async_add_internal_listener(_record)
-    coordinator.async_update_listeners()
+    coordinator.async_add_listener(lambda: None)
+    await _poll(hass, freezer)
 
     remove()
-    coordinator.async_update_listeners()
+    await _poll(hass, freezer)
 
     assert calls == 1
 
