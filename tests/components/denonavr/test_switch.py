@@ -6,20 +6,13 @@ from unittest.mock import MagicMock, patch
 from denonavr.exceptions import AvrCommandError
 import pytest
 
-from homeassistant.components.denonavr.config_flow import (
-    CONF_MANUFACTURER,
-    CONF_SERIAL_NUMBER,
-    CONF_TYPE,
-    DOMAIN,
-)
+from homeassistant.components.denonavr.config_flow import DOMAIN
 from homeassistant.components.denonavr.const import CONF_UPDATE_AUDYSSEY
 from homeassistant.components.denonavr.switch import DYNAMIC_EQ_DESCRIPTION
 from homeassistant.components.select import DOMAIN as SELECT_DOMAIN
 from homeassistant.components.switch import DOMAIN as SWITCH_DOMAIN
 from homeassistant.const import (
     ATTR_ENTITY_ID,
-    CONF_HOST,
-    CONF_MODEL,
     SERVICE_TURN_OFF,
     SERVICE_TURN_ON,
     STATE_UNAVAILABLE,
@@ -29,16 +22,8 @@ from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.entity_component import async_update_entity
 
-from tests.common import MockConfigEntry
+from . import TEST_NAME, TEST_UNIQUE_ID, setup_denonavr
 
-TEST_HOST = "1.2.3.4"
-TEST_NAME = "Test_Receiver"
-TEST_MODEL = "model5"
-TEST_SERIALNUMBER = "123456789"
-TEST_MANUFACTURER = "Denon"
-TEST_RECEIVER_TYPE = "avr-x"
-TEST_ZONE = "Main"
-TEST_UNIQUE_ID = f"{TEST_MODEL}-{TEST_SERIALNUMBER}"
 SWITCH_ENTITY_ID = f"{SWITCH_DOMAIN}.{TEST_NAME.lower()}_dynamic_eq"
 
 
@@ -53,80 +38,6 @@ def _fast_action_refresh_debounce():
         0,
     ):
         yield
-
-
-@pytest.fixture(name="client")
-def client_fixture():
-    """Patch of client library for tests."""
-    with (
-        patch(
-            "homeassistant.components.denonavr.receiver.DenonAVR",
-            autospec=True,
-        ) as mock_client_class,
-        patch("homeassistant.components.denonavr.config_flow.denonavr.async_discover"),
-    ):
-        mock_client_class.return_value.name = TEST_NAME
-        mock_client_class.return_value.model_name = TEST_MODEL
-        mock_client_class.return_value.serial_number = TEST_SERIALNUMBER
-        mock_client_class.return_value.manufacturer = TEST_MANUFACTURER
-        mock_client_class.return_value.receiver_type = TEST_RECEIVER_TYPE
-        mock_client_class.return_value.zone = TEST_ZONE
-        mock_client_class.return_value.input_func_list = []
-        mock_client_class.return_value.sound_mode_list = []
-        mock_client_class.return_value.zones = {"Main": mock_client_class.return_value}
-        mock_client_class.return_value.telnet_connected = False
-        mock_client_class.return_value.telnet_healthy = False
-        mock_client_class.return_value.dynamic_eq = True
-        # Not used by these tests directly, but the select platform is
-        # set up alongside switch in every test here too (the same
-        # config entry forwards all platforms) - leaving these as
-        # auto-generated MagicMocks makes the entity registry's stored
-        # "capabilities.options" for those selects an unserializable
-        # mock, which crashes the whole test's teardown when it tries
-        # to write the registry, not just something scoped to switch.
-        mock_client_class.return_value.reference_level_offset_setting_list = [
-            "0dB",
-            "+5dB",
-            "+10dB",
-            "+15dB",
-        ]
-        mock_client_class.return_value.dynamic_volume_setting_list = [
-            "Off",
-            "Light",
-            "Medium",
-            "Heavy",
-        ]
-        mock_client_class.return_value.multi_eq_setting_list = [
-            "Off",
-            "Flat",
-            "L/R Bypass",
-            "Reference",
-            "Manual",
-        ]
-        yield mock_client_class.return_value
-
-
-async def setup_denonavr(
-    hass: HomeAssistant, options: dict | None = None
-) -> MockConfigEntry:
-    """Initialize the denonavr integration for tests."""
-    entry_data = {
-        CONF_HOST: TEST_HOST,
-        CONF_MODEL: TEST_MODEL,
-        CONF_TYPE: TEST_RECEIVER_TYPE,
-        CONF_MANUFACTURER: TEST_MANUFACTURER,
-        CONF_SERIAL_NUMBER: TEST_SERIALNUMBER,
-    }
-    mock_entry = MockConfigEntry(
-        domain=DOMAIN,
-        unique_id=TEST_UNIQUE_ID,
-        data=entry_data,
-        options=options or {},
-    )
-    mock_entry.add_to_hass(hass)
-    await hass.config_entries.async_setup(mock_entry.entry_id)
-    await hass.async_block_till_done()
-    return mock_entry
 
 
 async def _wait_for_debounced_refresh(hass: HomeAssistant) -> None:
