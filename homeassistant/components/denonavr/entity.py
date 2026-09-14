@@ -20,7 +20,11 @@ from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from . import DenonavrConfigEntry
 from .const import CONF_SERIAL_NUMBER, DOMAIN, PENDING_VALUE_TIMEOUT
-from .coordinator import UNAVAILABLE_ON, DenonAvrDataUpdateCoordinator, mark_unavailable
+from .coordinator import (
+    COMMAND_UNAVAILABLE_ON,
+    DenonAvrDataUpdateCoordinator,
+    mark_unavailable,
+)
 
 
 def receiver_unique_id(config_entry: DenonavrConfigEntry, key: str) -> str:
@@ -193,10 +197,10 @@ class DenonAvrPendingValueEntity[_T](CoordinatorEntity[DenonAvrDataUpdateCoordin
             try:
                 await send()
             except DenonAvrError as err:
-                if isinstance(err, UNAVAILABLE_ON):
+                if isinstance(err, COMMAND_UNAVAILABLE_ON):
                     # Status only: Audyssey follows it with Telnet down, or polls.
                     # Marked here, it would outlast status until an Audyssey push.
-                    mark_unavailable(self._data.coordinator)
+                    mark_unavailable(self._data.coordinator, err)
                 raise HomeAssistantError(
                     translation_domain=DOMAIN,
                     translation_key="set_failed",

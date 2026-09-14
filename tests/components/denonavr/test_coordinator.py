@@ -174,7 +174,7 @@ async def test_a_failure_while_waiting_for_the_lock_forces_the_read(
     async with coordinator.lock:
         refresh = hass.async_create_task(coordinator.async_refresh())
         await asyncio.sleep(0)
-        mark_unavailable(coordinator)
+        mark_unavailable(coordinator, AvrNetworkError("Connection refused", "GET"))
 
     await refresh
 

@@ -1,5 +1,6 @@
 """Test the denonavr integration setup and teardown."""
 
+from collections.abc import Callable
 from unittest.mock import MagicMock
 
 from denonavr.exceptions import AvrNetworkError
@@ -12,6 +13,7 @@ from homeassistant.components.denonavr.config_flow import (
     DOMAIN,
 )
 from homeassistant.components.denonavr.const import CONF_ZONE2, CONF_ZONE3
+from homeassistant.components.denonavr.coordinator import mark_unavailable
 from homeassistant.config_entries import ConfigEntryState
 from homeassistant.const import CONF_HOST, CONF_MODEL, EVENT_HOMEASSISTANT_STOP
 from homeassistant.core import HomeAssistant
@@ -24,6 +26,7 @@ from . import (
     TEST_RECEIVER_TYPE,
     TEST_SERIALNUMBER,
     TEST_UNIQUE_ID,
+    setup_denonavr,
 )
 
 from tests.common import MockConfigEntry
@@ -160,3 +163,55 @@ async def test_unload_removes_disabled_zone_entity(
     await hass.async_block_till_done()
 
     assert entity_registry.async_get(stray_entity_id) is None
+
+
+@pytest.mark.parametrize(
+    "events",
+    [
+        # A status push says nothing of the Audyssey settings, so the outage
+        # ends with the push that does.
+        pytest.param(("MV", "MV", "PS"), id="status_event_first"),
+        # Reaches both coordinators' callbacks, the Audyssey one first.
+        pytest.param(("PS", "PS"), id="audyssey_event"),
+    ],
+)
+async def test_telnet_push_logs_recovery_once(
+    hass: HomeAssistant,
+    client: MagicMock,
+    fire_telnet_event: Callable[[str, str, str], None],
+    caplog: pytest.LogCaptureFixture,
+    events: tuple[str, ...],
+) -> None:
+    """A push ending an outage logs the recovery once, as the drop was."""
+    client.telnet_connected = True
+    client.telnet_healthy = True
+    entry = await setup_denonavr(hass)
+    coordinator = entry.runtime_data.coordinator
+    audyssey_coordinator = entry.runtime_data.audyssey_coordinator
+    err = AvrNetworkError("Connection refused", "test")
+    mark_unavailable(coordinator, err)
+    # Healthy Telnet hands nothing over; a failed update_audyssey marks both.
+    assert audyssey_coordinator.last_update_success
+    mark_unavailable(audyssey_coordinator, err)
+
+    for event in events:
+        fire_telnet_event("Main", event, "")
+
+    assert coordinator.last_update_success
+    assert audyssey_coordinator.last_update_success
+    assert caplog.text.count("data recovered") == 1
+
+
+async def test_telnet_push_does_not_log_recovery_while_healthy(
+    hass: HomeAssistant,
+    client: MagicMock,
+    fire_telnet_event: Callable[[str, str, str], None],
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Pushes on a healthy receiver recover nothing."""
+    await setup_denonavr(hass)
+
+    fire_telnet_event("Main", "MV", "")
+    fire_telnet_event("Main", "PS", "")
+
+    assert "data recovered" not in caplog.text
