@@ -377,11 +377,6 @@ class DenonDevice(CoordinatorEntity[DenonAvrDataUpdateCoordinator], MediaPlayerE
             state_attributes[ATTR_DYNAMIC_EQ] = dynamic_eq
         return state_attributes
 
-    @property
-    def dynamic_eq(self) -> bool | None:
-        """Status of DynamicEQ."""
-        return self._receiver.dynamic_eq
-
     # pylint: disable-next=home-assistant-action-swallowed-exception
     @async_log_errors
     @override

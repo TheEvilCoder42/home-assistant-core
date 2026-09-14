@@ -8,12 +8,7 @@ from denonavr.exceptions import AvrCommandError, AvrNetworkError
 from freezegun.api import FrozenDateTimeFactory
 import pytest
 
-from homeassistant.components.denonavr.config_flow import (
-    CONF_MANUFACTURER,
-    CONF_SERIAL_NUMBER,
-    CONF_TYPE,
-    DOMAIN,
-)
+from homeassistant.components.denonavr.config_flow import DOMAIN
 from homeassistant.components.denonavr.const import (
     CONF_UPDATE_AUDYSSEY,
     CONF_USE_TELNET,
@@ -24,8 +19,6 @@ from homeassistant.components.switch import DOMAIN as SWITCH_DOMAIN
 from homeassistant.const import (
     ATTR_ENTITY_ID,
     ATTR_OPTION,
-    CONF_HOST,
-    CONF_MODEL,
     SERVICE_SELECT_OPTION,
     STATE_UNAVAILABLE,
 )
@@ -34,16 +27,9 @@ from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.entity_component import async_update_entity
 
-from tests.common import MockConfigEntry, async_fire_time_changed
+from . import TEST_UNIQUE_ID, setup_denonavr
 
-TEST_HOST = "1.2.3.4"
-TEST_NAME = "Test_Receiver"
-TEST_MODEL = "model5"
-TEST_SERIALNUMBER = "123456789"
-TEST_MANUFACTURER = "Denon"
-TEST_RECEIVER_TYPE = "avr-x"
-TEST_ZONE = "Main"
-TEST_UNIQUE_ID = f"{TEST_MODEL}-{TEST_SERIALNUMBER}"
+from tests.common import async_fire_time_changed
 
 
 @pytest.fixture(autouse=True)
@@ -61,85 +47,6 @@ def _fast_action_refresh_debounce():
         0,
     ):
         yield
-
-
-@pytest.fixture(name="client")
-def client_fixture():
-    """Patch of client library for tests."""
-    with (
-        patch(
-            "homeassistant.components.denonavr.receiver.DenonAVR",
-            autospec=True,
-        ) as mock_client_class,
-        patch("homeassistant.components.denonavr.config_flow.denonavr.async_discover"),
-    ):
-        mock_client_class.return_value.name = TEST_NAME
-        mock_client_class.return_value.model_name = TEST_MODEL
-        mock_client_class.return_value.serial_number = TEST_SERIALNUMBER
-        mock_client_class.return_value.manufacturer = TEST_MANUFACTURER
-        mock_client_class.return_value.receiver_type = TEST_RECEIVER_TYPE
-        mock_client_class.return_value.zone = TEST_ZONE
-        mock_client_class.return_value.input_func_list = []
-        mock_client_class.return_value.sound_mode_list = []
-        mock_client_class.return_value.zones = {"Main": mock_client_class.return_value}
-        mock_client_class.return_value.telnet_connected = False
-        mock_client_class.return_value.telnet_healthy = False
-
-        # Audyssey defaults used by the select entities.
-        mock_client_class.return_value.dynamic_eq = True
-        mock_client_class.return_value.reference_level_offset = "0dB"
-        mock_client_class.return_value.reference_level_offset_setting_list = [
-            "0dB",
-            "+5dB",
-            "+10dB",
-            "+15dB",
-        ]
-        mock_client_class.return_value.dynamic_volume = "Off"
-        mock_client_class.return_value.dynamic_volume_setting_list = [
-            "Off",
-            "Light",
-            "Medium",
-            "Heavy",
-        ]
-        mock_client_class.return_value.multi_eq = "Reference"
-        mock_client_class.return_value.multi_eq_setting_list = [
-            "Off",
-            "Flat",
-            "L/R Bypass",
-            "Reference",
-            "Manual",
-        ]
-        mock_client_class.return_value.eco_mode = "Auto"
-        mock_client_class.return_value.dimmer = "Bright"
-        mock_client_class.return_value.auto_standby = "OFF"
-        yield mock_client_class.return_value
-
-
-async def setup_denonavr(
-    hass: HomeAssistant, options: dict | None = None
-) -> MockConfigEntry:
-    """Initialize the denonavr integration for tests."""
-    entry_data = {
-        CONF_HOST: TEST_HOST,
-        CONF_MODEL: TEST_MODEL,
-        CONF_TYPE: TEST_RECEIVER_TYPE,
-        CONF_MANUFACTURER: TEST_MANUFACTURER,
-        CONF_SERIAL_NUMBER: TEST_SERIALNUMBER,
-    }
-
-    mock_entry = MockConfigEntry(
-        domain=DOMAIN,
-        unique_id=TEST_UNIQUE_ID,
-        data=entry_data,
-        options=options or {},
-    )
-
-    mock_entry.add_to_hass(hass)
-
-    await hass.config_entries.async_setup(mock_entry.entry_id)
-    await hass.async_block_till_done()
-
-    return mock_entry
 
 
 async def _wait_for_debounced_refresh(hass: HomeAssistant) -> None:
@@ -764,6 +671,33 @@ async def test_rapid_consecutive_selections_do_not_race(
     # And the entity shows whichever option's set call actually finished
     # last - not a stale value from an overtaken earlier request.
     assert hass.states.get(entity_id).state == client.dimmer
+
+
+async def test_second_pending_value_cancels_first_ones_expiry_timer(
+    hass: HomeAssistant, client: MagicMock
+) -> None:
+    """A second command before the first's pending value expires cancels its timer.
+
+    Otherwise both timers would eventually fire - the second trying to
+    expire a pending value that isn't the current one anymore.
+    """
+    await setup_denonavr(hass)
+    entity_id = _entity_id(hass, "dimmer")
+
+    await hass.services.async_call(
+        SELECT_DOMAIN,
+        SERVICE_SELECT_OPTION,
+        {ATTR_ENTITY_ID: entity_id, ATTR_OPTION: "Dark"},
+        blocking=True,
+    )
+    await hass.services.async_call(
+        SELECT_DOMAIN,
+        SERVICE_SELECT_OPTION,
+        {ATTR_ENTITY_ID: entity_id, ATTR_OPTION: "Dim"},
+        blocking=True,
+    )
+
+    assert hass.states.get(entity_id).state == "Dim"
 
 
 async def test_telnet_notifies_audyssey_independently_of_media_player(
