@@ -64,6 +64,7 @@ from homeassistant.const import (
     STATE_UNAVAILABLE,
 )
 from homeassistant.core import HomeAssistant
+from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import device_registry as dr
 
 from . import (
@@ -157,7 +158,7 @@ async def test_action_error_branches(
     exception: Exception,
     marks_unavailable: bool,
 ) -> None:
-    """Each async_log_errors exception branch logs and, for some, marks unavailable.
+    """Every async_log_errors exception branch raises, and some also mark unavailable.
 
     Uses volume_up as a stand-in action - every method sharing this
     decorator behaves identically for each of these exception types.
@@ -165,12 +166,13 @@ async def test_action_error_branches(
     entry = await setup_denonavr(hass)
     client.async_volume_up.side_effect = exception
 
-    await hass.services.async_call(
-        media_player.DOMAIN,
-        SERVICE_VOLUME_UP,
-        {ATTR_ENTITY_ID: ENTITY_ID},
-        blocking=True,
-    )
+    with pytest.raises(HomeAssistantError):
+        await hass.services.async_call(
+            media_player.DOMAIN,
+            SERVICE_VOLUME_UP,
+            {ATTR_ENTITY_ID: ENTITY_ID},
+            blocking=True,
+        )
 
     assert entry.runtime_data.coordinator.last_update_success is not marks_unavailable
     assert (hass.states.get(ENTITY_ID).state == STATE_UNAVAILABLE) is marks_unavailable
@@ -573,12 +575,13 @@ async def test_update_audyssey_connectivity_error_marks_media_player_unavailable
         "Connection refused", "GetAudyssey"
     )
 
-    await hass.services.async_call(
-        DOMAIN,
-        SERVICE_UPDATE_AUDYSSEY,
-        {ATTR_ENTITY_ID: ENTITY_ID},
-    )
-    await hass.async_block_till_done()
+    with pytest.raises(HomeAssistantError):
+        await hass.services.async_call(
+            DOMAIN,
+            SERVICE_UPDATE_AUDYSSEY,
+            {ATTR_ENTITY_ID: ENTITY_ID},
+            blocking=True,
+        )
 
     assert entry.runtime_data.coordinator.last_update_success is False
 
@@ -620,12 +623,13 @@ async def test_set_dynamic_eq_connectivity_error_marks_audyssey_unavailable(
         "Connection refused", "SetAudyssey"
     )
 
-    await hass.services.async_call(
-        DOMAIN,
-        SERVICE_SET_DYNAMIC_EQ,
-        {ATTR_ENTITY_ID: ENTITY_ID, ATTR_DYNAMIC_EQ: True},
-    )
-    await hass.async_block_till_done()
+    with pytest.raises(HomeAssistantError):
+        await hass.services.async_call(
+            DOMAIN,
+            SERVICE_SET_DYNAMIC_EQ,
+            {ATTR_ENTITY_ID: ENTITY_ID, ATTR_DYNAMIC_EQ: True},
+            blocking=True,
+        )
 
     assert entry.runtime_data.audyssey_coordinator.last_update_success is False
 
