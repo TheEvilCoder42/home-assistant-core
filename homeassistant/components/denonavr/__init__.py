@@ -37,6 +37,7 @@ from .coordinator import (
     DenonAvrDataUpdateCoordinator,
     async_refresh_audyssey,
     async_refresh_status,
+    mark_available,
     mark_unavailable,
 )
 from .receiver import ConnectDenonAVR
@@ -132,6 +133,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: DenonavrConfigEntry) -> 
             return
         if audyssey_coordinator.last_update_success != coordinator.last_update_success:
             audyssey_coordinator.last_update_success = coordinator.last_update_success
+            audyssey_coordinator.last_exception = coordinator.last_exception
             audyssey_coordinator.async_update_listeners()
 
     entry.async_on_unload(
@@ -148,7 +150,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: DenonavrConfigEntry) -> 
         to confirm.
         """
         if not audyssey_coordinator.last_update_success and not coordinator.polls:
-            mark_unavailable(coordinator)
+            err = audyssey_coordinator.last_exception
+            assert isinstance(err, Exception)
+            mark_unavailable(coordinator, err)
 
     entry.async_on_unload(
         audyssey_coordinator.async_add_internal_listener(
@@ -170,12 +174,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: DenonavrConfigEntry) -> 
 
         A push is the receiver answering, so it clears an earlier
         connectivity failure: without "Update Audyssey settings" there is no
-        poll to clear one. Not async_set_updated_data(): that cancels the
-        refresh a Dynamic EQ change queued, and Telnet never pushes the other
-        zones' copies it brings in step.
+        poll to clear one. It keeps the refresh a Dynamic EQ change queued,
+        which brings the other zones' copies in step: Telnet never pushes those.
         """
-        audyssey_coordinator.last_update_success = True
-        audyssey_coordinator.async_update_listeners()
+        mark_available(audyssey_coordinator)
 
     receiver.register_callback(AUDYSSEY_TELNET_EVENT, _telnet_notify_audyssey)
     entry.async_on_unload(
@@ -191,9 +193,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: DenonavrConfigEntry) -> 
         Its poll skips while Telnet is healthy, so nothing else would follow
         a push.
 
-        A push is the receiver answering, so it clears a failure. Not
-        async_set_updated_data(): that cancels an action's pending
-        confirmation refresh.
+        A push is the receiver answering, so it clears a failure.
         """
         # A now-playing or HD Radio change arrives as one event per field:
         # notifying on each would publish a new title with the old artist.
@@ -201,8 +201,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: DenonavrConfigEntry) -> 
             event == "HD" and not parameter.startswith("ALBUM")
         ):
             return
-        coordinator.last_update_success = True
-        coordinator.async_update_listeners()
+        mark_available(coordinator)
 
     receiver.register_callback(ALL_TELNET_EVENTS, _telnet_notify_status)
     entry.async_on_unload(

@@ -39,6 +39,12 @@ UNAVAILABLE_ON = (
     AvrIncompleteResponseError,
 )
 
+# A 403 answering a command is the receiver refusing that command, not an
+# unreachable receiver; a read's 403 still marks it unavailable.
+COMMAND_UNAVAILABLE_ON = tuple(
+    err for err in UNAVAILABLE_ON if err is not AvrForbiddenError
+)
+
 
 async def async_refresh_status(receiver: DenonAVR, *, force: bool = False) -> None:
     """Refresh general receiver status for every configured zone.
@@ -267,13 +273,38 @@ class DenonAvrDataUpdateCoordinator(DataUpdateCoordinator[None]):
 
 
 @callback
-def mark_unavailable(coordinator: DenonAvrDataUpdateCoordinator) -> None:
+def mark_unavailable(
+    coordinator: DenonAvrDataUpdateCoordinator, err: Exception
+) -> None:
     """Mark a coordinator unavailable after a confirmed connectivity failure.
 
     For failures outside the refresh cycle, such as a command of an entity's
     own, so availability reflects them without waiting for the next poll.
-    Notifies even when already unavailable: the other coordinator may have
-    recovered since the last failure.
+    Logged only when the receiver drops: a failure the other coordinator
+    already has was logged there. Notifies even when already unavailable:
+    the other coordinator may have recovered since the last failure.
     """
+    if coordinator.last_update_success and (
+        coordinator.peer is None or coordinator.peer.last_update_success
+    ):
+        coordinator.async_set_update_error(err)
+        return
+    coordinator.last_exception = err
     coordinator.last_update_success = False
     coordinator.async_update_listeners()
+
+
+@callback
+def mark_available(coordinator: DenonAvrDataUpdateCoordinator) -> None:
+    """Clear a failure once the receiver answers outside the refresh cycle.
+
+    Not async_set_updated_data(): that cancels a pending confirmation refresh.
+    Logs the recovery in a poll's words, once the other coordinator is back
+    too, as mark_unavailable() logs the drop once. Checked after notifying: a
+    push reaching both coordinators may clear the other through this one.
+    """
+    recovered = not coordinator.last_update_success
+    coordinator.last_update_success = True
+    coordinator.async_update_listeners()
+    if recovered and (coordinator.peer is None or coordinator.peer.last_update_success):
+        coordinator.logger.info("Fetching %s data recovered", coordinator.name)

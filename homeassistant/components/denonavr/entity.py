@@ -19,7 +19,11 @@ from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from . import DenonavrConfigEntry
 from .const import CONF_SERIAL_NUMBER, DOMAIN, PENDING_VALUE_TIMEOUT
-from .coordinator import UNAVAILABLE_ON, DenonAvrDataUpdateCoordinator, mark_unavailable
+from .coordinator import (
+    COMMAND_UNAVAILABLE_ON,
+    DenonAvrDataUpdateCoordinator,
+    mark_unavailable,
+)
 
 
 def receiver_unique_id(config_entry: DenonavrConfigEntry, key: str) -> str:
@@ -175,11 +179,11 @@ class DenonAvrPendingValueEntity[_T](CoordinatorEntity[DenonAvrDataUpdateCoordin
             try:
                 await send()
             except DenonAvrError as err:
-                if isinstance(err, UNAVAILABLE_ON):
+                if isinstance(err, COMMAND_UNAVAILABLE_ON):
                     # An unreachable receiver rather than a rejected command,
                     # so no coordinator's data is current, whichever one asked.
-                    mark_unavailable(self._data.coordinator)
-                    mark_unavailable(self._data.audyssey_coordinator)
+                    mark_unavailable(self._data.coordinator, err)
+                    mark_unavailable(self._data.audyssey_coordinator, err)
                 raise HomeAssistantError(
                     translation_domain=DOMAIN,
                     translation_key="set_failed",

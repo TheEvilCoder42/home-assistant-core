@@ -5,7 +5,7 @@ from collections.abc import Callable
 from datetime import timedelta
 from unittest.mock import MagicMock, patch
 
-from denonavr.exceptions import AvrCommandError, AvrNetworkError
+from denonavr.exceptions import AvrCommandError, AvrForbiddenError, AvrNetworkError
 from freezegun.api import FrozenDateTimeFactory
 import pytest
 from syrupy.assertion import SnapshotAssertion
@@ -220,7 +220,7 @@ async def test_select_option(
 
 
 @pytest.mark.parametrize(
-    ("error", "available", "error_message"),
+    ("error", "available", "error_message", "logs"),
     [
         pytest.param(
             AvrCommandError(
@@ -229,12 +229,21 @@ async def test_select_option(
             ),
             True,
             "Reference level could only be set when DynamicEQ is active",
+            0,
             id="rejected_command",
+        ),
+        pytest.param(
+            AvrForbiddenError("Forbidden", "SetAudyssey"),
+            True,
+            "Forbidden",
+            0,
+            id="forbidden",
         ),
         pytest.param(
             AvrNetworkError("Connection refused", "SetAudyssey"),
             False,
             "Connection refused",
+            1,
             id="unreachable_receiver",
         ),
     ],
@@ -243,15 +252,18 @@ async def test_select_option_raises_on_avr_error(
     hass: HomeAssistant,
     client: MagicMock,
     entity_registry: er.EntityRegistry,
+    caplog: pytest.LogCaptureFixture,
     error: Exception,
     available: bool,
     error_message: str,
+    logs: int,
 ) -> None:
     """A receiver error while selecting is surfaced to the user.
 
     A connectivity failure also marks both coordinators unavailable, since
     an unreachable receiver found through an Audyssey setting is the same
-    news as one found through a media_player command.
+    news as one found through a media_player command. It is logged once, not
+    once per coordinator.
     """
     entry = await setup_denonavr(hass)
     entity_id = get_entity_id(entity_registry, SELECT_DOMAIN, "reference_level_offset")
@@ -269,6 +281,7 @@ async def test_select_option_raises_on_avr_error(
     assert entry.runtime_data.coordinator.last_update_success is available
     assert entry.runtime_data.audyssey_coordinator.last_update_success is available
     assert (hass.states.get(entity_id).state != STATE_UNAVAILABLE) is available
+    assert caplog.text.count("Error requesting denonavr_") == logs
 
 
 @pytest.mark.parametrize(

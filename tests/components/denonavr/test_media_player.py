@@ -74,6 +74,7 @@ from homeassistant.const import (
     STATE_UNKNOWN,
 )
 from homeassistant.core import HomeAssistant
+from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import device_registry as dr
 from homeassistant.setup import async_setup_component
 
@@ -183,22 +184,28 @@ async def test_update_entity_reads_before_returning(
             AvrCommandError("Could not set volume", "SetVolume"), id="command"
         ),
         pytest.param(DenonAvrError("Unexpected"), id="generic"),
+        # The receiver refusing this command, as the AVR-X1700H refuses HTTP
+        # track skips.
+        pytest.param(AvrForbiddenError("Forbidden", "SetVolume"), id="forbidden"),
     ],
 )
 async def test_non_connectivity_error_does_not_mark_unavailable(
     hass: HomeAssistant, client: MagicMock, exception: Exception
 ) -> None:
     """Not connectivity failures: the receiver answered, or rejected one command."""
-    await setup_denonavr(hass)
+    entry = await setup_denonavr(hass)
     client.async_volume_up.side_effect = exception
 
-    await hass.services.async_call(
-        media_player.DOMAIN,
-        SERVICE_VOLUME_UP,
-        {ATTR_ENTITY_ID: ENTITY_ID},
-        blocking=True,
-    )
+    with pytest.raises(HomeAssistantError):
+        await hass.services.async_call(
+            media_player.DOMAIN,
+            SERVICE_VOLUME_UP,
+            {ATTR_ENTITY_ID: ENTITY_ID},
+            blocking=True,
+        )
 
+    assert entry.runtime_data.coordinator.last_update_success
+    assert entry.runtime_data.audyssey_coordinator.last_update_success
     assert hass.states.get(ENTITY_ID).state != STATE_UNAVAILABLE
 
 
@@ -207,7 +214,6 @@ async def test_non_connectivity_error_does_not_mark_unavailable(
     [
         pytest.param(AvrTimoutError("Timed out", "SetVolume"), id="timeout"),
         pytest.param(AvrNetworkError("Network error", "SetVolume"), id="network"),
-        pytest.param(AvrForbiddenError("Forbidden", "SetVolume"), id="forbidden"),
         pytest.param(
             AvrInvalidResponseError("Bad XML", "SetVolume"), id="invalid_response"
         ),
@@ -224,12 +230,13 @@ async def test_connectivity_error_marks_unavailable(
     entry = await setup_denonavr(hass)
     client.async_volume_up.side_effect = exception
 
-    await hass.services.async_call(
-        media_player.DOMAIN,
-        SERVICE_VOLUME_UP,
-        {ATTR_ENTITY_ID: ENTITY_ID},
-        blocking=True,
-    )
+    with pytest.raises(HomeAssistantError):
+        await hass.services.async_call(
+            media_player.DOMAIN,
+            SERVICE_VOLUME_UP,
+            {ATTR_ENTITY_ID: ENTITY_ID},
+            blocking=True,
+        )
 
     assert entry.runtime_data.coordinator.last_update_success is False
     assert hass.states.get(ENTITY_ID).state == STATE_UNAVAILABLE
@@ -266,10 +273,10 @@ async def test_telnet_push_writes_once_per_update(
     assert mock_write.call_count == writes
 
 
-async def test_queued_commands_warn_once_when_the_receiver_drops(
+async def test_queued_commands_log_once_when_the_receiver_drops(
     hass: HomeAssistant, client: MagicMock, caplog: pytest.LogCaptureFixture
 ) -> None:
-    """Queued commands each fail, but only the first warns.
+    """Queued commands each fail, but only the first logs.
 
     Both were dispatched while the entity was still available, so both run.
     """
@@ -293,16 +300,17 @@ async def test_queued_commands_warn_once_when_the_receiver_drops(
         for _ in range(2)
     ]
     release.set()
-    await asyncio.gather(*calls)
+    results = await asyncio.gather(*calls, return_exceptions=True)
 
+    assert [type(result) for result in results] == [HomeAssistantError] * 2
     assert client.async_volume_up.await_count == 2
-    assert caplog.text.count("Network error connecting") == 1
+    assert caplog.text.count("Error requesting denonavr_") == 1
 
 
-async def test_audyssey_command_failure_warns_with_polling_disabled(
+async def test_audyssey_command_failure_logs_once_with_polling_disabled(
     hass: HomeAssistant, client: MagicMock, caplog: pytest.LogCaptureFixture
 ) -> None:
-    """The first failure warns though the command already marked it unavailable.
+    """One failure logs once, though it marks both coordinators unavailable.
 
     With polling disabled the Audyssey failure reaches the status coordinator
     before the decorator sees the exception.
@@ -312,14 +320,15 @@ async def test_audyssey_command_failure_warns_with_polling_disabled(
         "Network error", "SetAudyssey"
     )
 
-    await hass.services.async_call(
-        DOMAIN,
-        SERVICE_SET_DYNAMIC_EQ,
-        {ATTR_ENTITY_ID: ENTITY_ID, ATTR_DYNAMIC_EQ: True},
-        blocking=True,
-    )
+    with pytest.raises(HomeAssistantError):
+        await hass.services.async_call(
+            DOMAIN,
+            SERVICE_SET_DYNAMIC_EQ,
+            {ATTR_ENTITY_ID: ENTITY_ID, ATTR_DYNAMIC_EQ: True},
+            blocking=True,
+        )
 
-    assert caplog.text.count("Network error connecting") == 1
+    assert caplog.text.count("Error requesting denonavr_") == 1
 
 
 async def test_dynamic_eq_attribute_updates_from_audyssey_coordinator(
@@ -584,8 +593,21 @@ async def test_mute_volume(hass: HomeAssistant, client: MagicMock) -> None:
     client.async_mute.assert_awaited_once_with(True)
 
 
+@pytest.mark.parametrize(
+    ("exception", "available"),
+    [
+        pytest.param(
+            AvrNetworkError("Connection refused", "SetAudyssey"),
+            False,
+            id="unreachable_receiver",
+        ),
+        pytest.param(
+            AvrForbiddenError("Forbidden", "SetAudyssey"), True, id="forbidden"
+        ),
+    ],
+)
 async def test_set_dynamic_eq_connectivity_error_marks_audyssey_unavailable(
-    hass: HomeAssistant, client: MagicMock
+    hass: HomeAssistant, client: MagicMock, exception: Exception, available: bool
 ) -> None:
     """A connectivity failure here also affects the Audyssey coordinator.
 
@@ -593,21 +615,22 @@ async def test_set_dynamic_eq_connectivity_error_marks_audyssey_unavailable(
     rather than through that coordinator - so on a connectivity
     failure, only marking the general coordinator unavailable (what
     the decorator already does) would leave Audyssey-backed entities
-    still showing available with stale data.
+    still showing available with stale data. A 403 is the receiver
+    refusing the command, so it marks neither.
     """
     entry = await setup_denonavr(hass)
-    client.async_dynamic_eq_on.side_effect = AvrNetworkError(
-        "Connection refused", "SetAudyssey"
-    )
+    client.async_dynamic_eq_on.side_effect = exception
 
-    await hass.services.async_call(
-        DOMAIN,
-        SERVICE_SET_DYNAMIC_EQ,
-        {ATTR_ENTITY_ID: ENTITY_ID, ATTR_DYNAMIC_EQ: True},
-    )
-    await hass.async_block_till_done()
+    with pytest.raises(HomeAssistantError):
+        await hass.services.async_call(
+            DOMAIN,
+            SERVICE_SET_DYNAMIC_EQ,
+            {ATTR_ENTITY_ID: ENTITY_ID, ATTR_DYNAMIC_EQ: True},
+            blocking=True,
+        )
 
-    assert entry.runtime_data.audyssey_coordinator.last_update_success is False
+    assert entry.runtime_data.coordinator.last_update_success is available
+    assert entry.runtime_data.audyssey_coordinator.last_update_success is available
 
 
 async def test_dynamic_eq(hass: HomeAssistant, client: MagicMock) -> None:
@@ -641,6 +664,7 @@ async def test_dynamic_eq(hass: HomeAssistant, client: MagicMock) -> None:
 async def test_update_audyssey(
     hass: HomeAssistant,
     client: MagicMock,
+    caplog: pytest.LogCaptureFixture,
     telnet_healthy: bool,
     options: dict[str, bool],
 ) -> None:
@@ -664,6 +688,7 @@ async def test_update_audyssey(
     await hass.async_block_till_done()
 
     assert client.async_update_audyssey.call_count == calls_before_service + 1
+    assert "data recovered" not in caplog.text
 
 
 async def test_concurrent_forced_refreshes_share_one_bypassing_fetch(
@@ -827,7 +852,9 @@ async def test_unavailable_coordinator_reads_before_recovering(
     client.telnet_healthy = True
     entry = await setup_denonavr(hass, options={CONF_USE_TELNET: True})
 
-    mark_unavailable(entry.runtime_data.coordinator)
+    mark_unavailable(
+        entry.runtime_data.coordinator, AvrNetworkError("Connection refused", "GET")
+    )
     client.async_update.side_effect = side_effect
     reads_before = client.async_update.await_count
 
@@ -919,7 +946,7 @@ async def test_repeated_command_failure_still_reaches_a_coordinator_without_a_po
     coordinator = entry.runtime_data.coordinator
     audyssey_coordinator = entry.runtime_data.audyssey_coordinator
 
-    mark_unavailable(coordinator)
+    mark_unavailable(coordinator, AvrNetworkError("Connection refused", "GET"))
 
     assert audyssey_coordinator.last_update_success is False
 
@@ -928,31 +955,35 @@ async def test_repeated_command_failure_still_reaches_a_coordinator_without_a_po
 
     assert audyssey_coordinator.last_update_success is True
 
-    mark_unavailable(coordinator)
+    mark_unavailable(coordinator, AvrNetworkError("Connection refused", "GET"))
 
     assert audyssey_coordinator.last_update_success is False
 
 
 @pytest.mark.usefixtures("client")
-async def test_update_audyssey_restores_availability(hass: HomeAssistant) -> None:
+async def test_update_audyssey_restores_availability(
+    hass: HomeAssistant, caplog: pytest.LogCaptureFixture
+) -> None:
     """A successful call recovers Audyssey entities from a prior failure.
 
     The fetch is this zone's own rather than the coordinator's, so the
     coordinator has to be told it succeeded - otherwise a prior failure
     would keep every Audyssey-backed entity unavailable even after this
-    has updated the receiver's properties.
+    has updated the receiver's properties. The recovery is logged once.
     """
     entry = await setup_denonavr(hass)
     entry.runtime_data.audyssey_coordinator.last_update_success = False
 
-    await hass.services.async_call(
-        DOMAIN,
-        SERVICE_UPDATE_AUDYSSEY,
-        {ATTR_ENTITY_ID: ENTITY_ID},
-    )
-    await hass.async_block_till_done()
+    for _ in range(2):
+        await hass.services.async_call(
+            DOMAIN,
+            SERVICE_UPDATE_AUDYSSEY,
+            {ATTR_ENTITY_ID: ENTITY_ID},
+            blocking=True,
+        )
 
     assert entry.runtime_data.audyssey_coordinator.last_update_success is True
+    assert caplog.text.count("Fetching denonavr_audyssey data recovered") == 1
 
 
 async def test_update_audyssey_action_survives_a_receiver_without_audyssey(
@@ -1009,8 +1040,18 @@ async def test_update_audyssey_fetches_only_the_targeted_zone(
     assert zone2.async_update_audyssey.await_count == calls_before
 
 
+@pytest.mark.parametrize(
+    "exception",
+    [
+        pytest.param(
+            AvrNetworkError("Connection refused", "GetAudyssey"), id="network"
+        ),
+        # A read, unlike a command, so a 403 is the receiver misbehaving.
+        pytest.param(AvrForbiddenError("Forbidden", "GetAudyssey"), id="forbidden"),
+    ],
+)
 async def test_update_audyssey_connectivity_error_marks_media_player_unavailable(
-    hass: HomeAssistant, client: MagicMock
+    hass: HomeAssistant, client: MagicMock, exception: Exception
 ) -> None:
     """A connectivity failure here also affects the general coordinator.
 
@@ -1021,16 +1062,15 @@ async def test_update_audyssey_connectivity_error_marks_media_player_unavailable
     receiver itself is unreachable.
     """
     await setup_denonavr(hass)
-    client.async_update_audyssey.side_effect = AvrNetworkError(
-        "Connection refused", "GetAudyssey"
-    )
+    client.async_update_audyssey.side_effect = exception
 
-    await hass.services.async_call(
-        DOMAIN,
-        SERVICE_UPDATE_AUDYSSEY,
-        {ATTR_ENTITY_ID: ENTITY_ID},
-    )
-    await hass.async_block_till_done()
+    with pytest.raises(HomeAssistantError):
+        await hass.services.async_call(
+            DOMAIN,
+            SERVICE_UPDATE_AUDYSSEY,
+            {ATTR_ENTITY_ID: ENTITY_ID},
+            blocking=True,
+        )
 
     assert hass.states.get(ENTITY_ID).state == STATE_UNAVAILABLE
 
@@ -1133,15 +1173,17 @@ async def test_setup_retry_on_request_error(
             AvrIncompleteResponseError("Incomplete", "GET"),
             id="incomplete_response",
         ),
+        # Unlike a command's, a poll's 403 is the receiver misbehaving.
+        pytest.param(AvrForbiddenError("Forbidden", "GET"), id="forbidden"),
     ],
 )
-async def test_malformed_response_marks_unavailable(
+async def test_poll_error_marks_unavailable(
     hass: HomeAssistant,
     client: MagicMock,
     freezer: FrozenDateTimeFactory,
     exception: Exception,
 ) -> None:
-    """Test that malformed response errors mark the entity unavailable."""
+    """A poll's malformed response or 403 marks the entity unavailable."""
     await setup_denonavr(hass)
 
     state = hass.states.get(ENTITY_ID)

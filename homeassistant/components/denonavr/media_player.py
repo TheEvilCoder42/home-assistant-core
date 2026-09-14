@@ -14,16 +14,7 @@ from denonavr.const import (
     STATE_PLAYING,
     STATE_STOPPED,
 )
-from denonavr.exceptions import (
-    AvrCommandError,
-    AvrForbiddenError,
-    AvrIncompleteResponseError,
-    AvrInvalidResponseError,
-    AvrNetworkError,
-    AvrProcessingError,
-    AvrTimoutError,
-    DenonAvrError,
-)
+from denonavr.exceptions import AvrCommandError, AvrProcessingError, DenonAvrError
 
 from homeassistant.components.media_player import (
     MediaPlayerDeviceClass,
@@ -34,6 +25,7 @@ from homeassistant.components.media_player import (
 )
 from homeassistant.const import CONF_HOST, CONF_MODEL, CONF_TYPE
 from homeassistant.core import HomeAssistant
+from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
@@ -41,9 +33,11 @@ from homeassistant.helpers.update_coordinator import CoordinatorEntity
 from . import DenonavrConfigEntry
 from .const import ATTR_DYNAMIC_EQ, CONF_MANUFACTURER, CONF_SERIAL_NUMBER, DOMAIN
 from .coordinator import (
+    COMMAND_UNAVAILABLE_ON,
     UNAVAILABLE_ON,
     DenonAvrDataUpdateCoordinator,
     async_update_zone_audyssey,
+    mark_available,
     mark_unavailable,
 )
 
@@ -113,8 +107,8 @@ async def async_setup_entry(
 
 def async_log_errors[_DenonDeviceT: DenonDevice, **_P, _R](
     func: Callable[Concatenate[_DenonDeviceT, _P], Awaitable[_R]],
-) -> Callable[Concatenate[_DenonDeviceT, _P], Coroutine[Any, Any, _R | None]]:
-    """Log command errors and refresh the coordinator after success.
+) -> Callable[Concatenate[_DenonDeviceT, _P], Coroutine[Any, Any, _R]]:
+    """Raise HomeAssistantError on failure, and refresh the coordinator after success.
 
     The entity has should_poll=False, so nothing else refreshes it after a
     successful command. A connectivity failure marks the coordinator
@@ -122,74 +116,27 @@ def async_log_errors[_DenonDeviceT: DenonDevice, **_P, _R](
     """
 
     @wraps(func)
-    async def wrapper(
-        self: _DenonDeviceT, *args: _P.args, **kwargs: _P.kwargs
-    ) -> _R | None:
+    async def wrapper(self: _DenonDeviceT, *args: _P.args, **kwargs: _P.kwargs) -> _R:
         async with self.coordinator.lock:
-            # Read before the call: an Audyssey-scoped command marks the
-            # coordinators unavailable itself before re-raising.
-            was_available = self.available
             try:
                 result = await func(self, *args, **kwargs)
-            except AvrTimoutError as err:
-                if was_available:
-                    _LOGGER.warning(
-                        "Timeout connecting to Denon AVR receiver at host %s: %s",
-                        self._receiver.host,
-                        err,
-                    )
-                mark_unavailable(self.coordinator)
-                return None
-            except AvrNetworkError as err:
-                if was_available:
-                    _LOGGER.warning(
-                        "Network error connecting to Denon AVR receiver at host %s: %s",
-                        self._receiver.host,
-                        err,
-                    )
-                mark_unavailable(self.coordinator)
-                return None
+            except COMMAND_UNAVAILABLE_ON as err:
+                mark_unavailable(self.coordinator, err)
+                raise HomeAssistantError(
+                    f"Error communicating with {self._receiver.host}: {err}"
+                ) from err
             except AvrProcessingError as err:
-                if was_available:
-                    _LOGGER.warning(
-                        "Update of Denon AVR receiver at host %s not complete: %s",
-                        self._receiver.host,
-                        err,
-                    )
-                return None
-            except AvrForbiddenError as err:
-                if was_available:
-                    _LOGGER.warning(
-                        (
-                            "Denon AVR receiver at host %s responded with HTTP 403"
-                            " error. Please consider power cycling your receiver: %s"
-                        ),
-                        self._receiver.host,
-                        err,
-                    )
-                mark_unavailable(self.coordinator)
-                return None
-            except (AvrInvalidResponseError, AvrIncompleteResponseError) as err:
-                if was_available:
-                    _LOGGER.warning(
-                        "Denon AVR receiver at host %s returned malformed response: %s",
-                        self._receiver.host,
-                        err,
-                    )
-                mark_unavailable(self.coordinator)
-                return None
+                raise HomeAssistantError(
+                    f"Update of {self._receiver.host} not complete: {err}"
+                ) from err
             except AvrCommandError as err:
-                _LOGGER.error(
-                    "Command %s failed with error: %s",
-                    func.__name__,
-                    err,
-                )
-                return None
-            except DenonAvrError:
-                _LOGGER.exception(
-                    "Error occurred in method %s for Denon AVR receiver", func.__name__
-                )
-                return None
+                raise HomeAssistantError(
+                    f"Command {func.__name__} failed on {self._receiver.host}: {err}"
+                ) from err
+            except DenonAvrError as err:
+                raise HomeAssistantError(
+                    f"Error calling {func.__name__} on {self._receiver.host}: {err}"
+                ) from err
         await self.coordinator.async_request_refresh()
         return result
 
@@ -367,91 +314,78 @@ class DenonDevice(CoordinatorEntity[DenonAvrDataUpdateCoordinator], MediaPlayerE
             state_attributes[ATTR_DYNAMIC_EQ] = dynamic_eq
         return state_attributes
 
-    # pylint: disable-next=home-assistant-action-swallowed-exception
     @async_log_errors
     @override
     async def async_media_play_pause(self) -> None:
         """Play or pause the media player."""
         await self._receiver.async_toggle_play_pause()
 
-    # pylint: disable-next=home-assistant-action-swallowed-exception
     @async_log_errors
     @override
     async def async_media_play(self) -> None:
         """Send play command."""
         await self._receiver.async_play()
 
-    # pylint: disable-next=home-assistant-action-swallowed-exception
     @async_log_errors
     @override
     async def async_media_pause(self) -> None:
         """Send pause command."""
         await self._receiver.async_pause()
 
-    # pylint: disable-next=home-assistant-action-swallowed-exception
     @async_log_errors
     @override
     async def async_media_stop(self) -> None:
         """Send stop command."""
         await self._receiver.async_stop()
 
-    # pylint: disable-next=home-assistant-action-swallowed-exception
     @async_log_errors
     @override
     async def async_media_previous_track(self) -> None:
         """Send previous track command."""
         await self._receiver.async_previous_track()
 
-    # pylint: disable-next=home-assistant-action-swallowed-exception
     @async_log_errors
     @override
     async def async_media_next_track(self) -> None:
         """Send next track command."""
         await self._receiver.async_next_track()
 
-    # pylint: disable-next=home-assistant-action-swallowed-exception
     @async_log_errors
     @override
     async def async_select_source(self, source: str) -> None:
         """Select input source."""
         await self._receiver.async_set_input_func(source)
 
-    # pylint: disable-next=home-assistant-action-swallowed-exception
     @async_log_errors
     @override
     async def async_select_sound_mode(self, sound_mode: str) -> None:
         """Select sound mode."""
         await self._receiver.async_set_sound_mode(sound_mode)
 
-    # pylint: disable-next=home-assistant-action-swallowed-exception
     @async_log_errors
     @override
     async def async_turn_on(self) -> None:
         """Turn on media player."""
         await self._receiver.async_power_on()
 
-    # pylint: disable-next=home-assistant-action-swallowed-exception
     @async_log_errors
     @override
     async def async_turn_off(self) -> None:
         """Turn off media player."""
         await self._receiver.async_power_off()
 
-    # pylint: disable-next=home-assistant-action-swallowed-exception
     @async_log_errors
     @override
     async def async_volume_up(self) -> None:
         """Volume up the media player."""
         await self._receiver.async_volume_up()
 
-    # pylint: disable-next=home-assistant-action-swallowed-exception
     @async_log_errors
     @override
     async def async_volume_down(self) -> None:
         """Volume down media player."""
         await self._receiver.async_volume_down()
 
-    # pylint: disable-next=home-assistant-action-swallowed-exception
     @async_log_errors
     @override
     async def async_set_volume_level(self, volume: float) -> None:
@@ -463,7 +397,6 @@ class DenonDevice(CoordinatorEntity[DenonAvrDataUpdateCoordinator], MediaPlayerE
             volume_denon = float(18)
         await self._receiver.async_set_volume(volume_denon)
 
-    # pylint: disable-next=home-assistant-action-swallowed-exception
     @async_log_errors
     @override
     async def async_mute_volume(self, mute: bool) -> None:
@@ -485,15 +418,16 @@ class DenonDevice(CoordinatorEntity[DenonAvrDataUpdateCoordinator], MediaPlayerE
         """
         try:
             await async_update_zone_audyssey(self._receiver)
-        except UNAVAILABLE_ON:
-            # Audyssey-scoped, so that coordinator's data is suspect too.
-            mark_unavailable(self._audyssey_coordinator)
+        except UNAVAILABLE_ON as err:
+            # Audyssey-scoped, so that coordinator's data is suspect too. The
+            # general one is marked here, not by the decorator: a read's 403 counts.
+            mark_unavailable(self._audyssey_coordinator, err)
+            mark_unavailable(self.coordinator, err)
             raise
         # Keeps last_update_success and the Audyssey entities in step with
-        # a fetch made outside the coordinator. Not async_set_updated_data():
-        # that cancels the refresh set_dynamic_eq queued for the other zones.
-        self._audyssey_coordinator.last_update_success = True
-        self._audyssey_coordinator.async_update_listeners()
+        # a fetch made outside the coordinator, without cancelling the
+        # refresh set_dynamic_eq queued for the other zones.
+        mark_available(self._audyssey_coordinator)
 
     @async_log_errors
     async def async_set_dynamic_eq(self, dynamic_eq: bool) -> None:
@@ -503,10 +437,10 @@ class DenonDevice(CoordinatorEntity[DenonAvrDataUpdateCoordinator], MediaPlayerE
                 await self._receiver.async_dynamic_eq_on()
             else:
                 await self._receiver.async_dynamic_eq_off()
-        except UNAVAILABLE_ON:
+        except COMMAND_UNAVAILABLE_ON as err:
             # An Audyssey-scoped command, so that coordinator's data cannot
             # be trusted either, not just the general one the decorator marks.
-            mark_unavailable(self._audyssey_coordinator)
+            mark_unavailable(self._audyssey_coordinator, err)
             raise
 
         # The option governs the recurring poll alone. Safe inside the
