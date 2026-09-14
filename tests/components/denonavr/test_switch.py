@@ -31,21 +31,17 @@ from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError, ServiceValidationError
 from homeassistant.helpers import entity_registry as er
 
-from . import TEST_HOST, TEST_ZONE, get_entity_id, setup_denonavr
+from . import (
+    TEST_HOST,
+    TEST_ZONE,
+    get_entity_id,
+    setup_denonavr,
+    wait_for_debounced_refresh,
+)
 
 from tests.common import async_fire_time_changed, snapshot_platform
 
 pytestmark = pytest.mark.usefixtures("fast_action_refresh_debounce")
-
-
-async def _wait_for_debounced_refresh(hass: HomeAssistant) -> None:
-    """Let a coordinator's debounced confirmation refresh actually fire.
-
-    async_block_till_done() alone returns before the debouncer's own task
-    has run, so the sleep hands it the loop first.
-    """
-    await asyncio.sleep(0)
-    await hass.async_block_till_done()
 
 
 @pytest.mark.usefixtures("client")
@@ -404,7 +400,7 @@ async def test_turn_on_always_refreshes_audyssey_after_change(
         {ATTR_ENTITY_ID: entity_id},
         blocking=True,
     )
-    await _wait_for_debounced_refresh(hass)
+    await wait_for_debounced_refresh(hass)
 
     # Just one call, since this is the only entity acting - HA's own
     # post-service-call poll doesn't apply here (should_poll=False).
@@ -475,7 +471,7 @@ async def test_state_shown_immediately_even_if_refresh_reads_back_stale_value(
     )
     # Let the debounced confirmation refresh actually run its stale
     # read, rather than asserting before it's even had a chance to.
-    await _wait_for_debounced_refresh(hass)
+    await wait_for_debounced_refresh(hass)
 
     client.async_dynamic_eq_off.assert_awaited_once()
     assert hass.states.get(entity_id).state == STATE_OFF

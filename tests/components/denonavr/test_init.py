@@ -1,17 +1,25 @@
-"""The tests for the denonavr integration setup."""
+"""The tests for the denonavr integration setup and teardown."""
 
+from typing import Any
 from unittest.mock import MagicMock
+
+from denonavr.exceptions import AvrNetworkError
+import pytest
 
 from homeassistant.components.denonavr.const import (
     CONF_UPDATE_AUDYSSEY,
     CONF_USE_TELNET,
+    CONF_ZONE2,
+    CONF_ZONE3,
+    DOMAIN,
 )
 from homeassistant.components.switch import DOMAIN as SWITCH_DOMAIN
-from homeassistant.const import STATE_UNAVAILABLE
+from homeassistant.config_entries import ConfigEntryState
+from homeassistant.const import EVENT_HOMEASSISTANT_STOP, STATE_UNAVAILABLE
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import entity_registry as er
 
-from . import get_entity_id, setup_denonavr
+from . import TEST_UNIQUE_ID, get_entity_id, setup_denonavr
 
 
 async def test_setup_skips_redundant_audyssey_refresh_with_telnet(
@@ -54,3 +62,96 @@ async def test_setup_forces_audyssey_fetch_with_telnet_but_no_polling(
     assert client.async_update_audyssey.await_count == 1
     entity_id = get_entity_id(entity_registry, SWITCH_DOMAIN, "dynamic_eq")
     assert hass.states.get(entity_id).state != STATE_UNAVAILABLE
+
+
+async def test_setup_entry_not_ready_on_connection_error(
+    hass: HomeAssistant, client: MagicMock
+) -> None:
+    """A connection failure during setup must be retried, not fail permanently."""
+    client.async_setup.side_effect = AvrNetworkError("Connection refused", "GET")
+    entry = await setup_denonavr(hass)
+
+    assert entry.state is ConfigEntryState.SETUP_RETRY
+
+
+async def test_setup_proceeds_despite_missing_receiver_info(
+    hass: HomeAssistant, client: MagicMock
+) -> None:
+    """Document current behavior: incomplete receiver info doesn't block setup.
+
+    async_connect_receiver() returns False when the receiver's identifying
+    fields are missing, but nothing checks that return value.
+    """
+    client.manufacturer = None
+    entry = await setup_denonavr(hass)
+
+    assert entry.state is ConfigEntryState.LOADED
+
+
+@pytest.mark.parametrize(
+    ("options", "await_count"),
+    [
+        pytest.param({CONF_USE_TELNET: True}, 1, id="telnet"),
+        pytest.param({}, 0, id="no_telnet"),
+    ],
+)
+async def test_telnet_disconnect_on_home_assistant_stop(
+    hass: HomeAssistant,
+    client: MagicMock,
+    options: dict[str, Any],
+    await_count: int,
+) -> None:
+    """Stopping Home Assistant disconnects Telnet only if it was used."""
+    await setup_denonavr(hass, options=options)
+
+    hass.bus.async_fire(EVENT_HOMEASSISTANT_STOP)
+    await hass.async_block_till_done()
+
+    assert client.async_telnet_disconnect.await_count == await_count
+
+
+async def test_unload_disconnects_telnet(
+    hass: HomeAssistant, client: MagicMock
+) -> None:
+    """Unloading the entry must disconnect Telnet, if it was used."""
+    entry = await setup_denonavr(hass, options={CONF_USE_TELNET: True})
+
+    await hass.config_entries.async_unload(entry.entry_id)
+    await hass.async_block_till_done()
+
+    client.async_telnet_disconnect.assert_awaited_once()
+
+
+@pytest.mark.parametrize(
+    ("zone_option", "zone_unique_id_suffix"),
+    [
+        pytest.param(CONF_ZONE2, "Zone2", id="zone2"),
+        pytest.param(CONF_ZONE3, "Zone3", id="zone3"),
+    ],
+)
+@pytest.mark.usefixtures("client")
+async def test_unload_removes_disabled_zone_entity(
+    hass: HomeAssistant,
+    entity_registry: er.EntityRegistry,
+    zone_option: str,
+    zone_unique_id_suffix: str,
+) -> None:
+    """A zone entity must be removed from the registry once its option is turned off.
+
+    Simulates a stray leftover entity from when the zone option was
+    previously enabled - the real zone-creation path isn't exercised
+    here since the client mock always reports a single "Main" zone.
+    """
+    entry = await setup_denonavr(hass, options={zone_option: False})
+
+    stray_entity_id = entity_registry.async_get_or_create(
+        "media_player",
+        DOMAIN,
+        f"{TEST_UNIQUE_ID}-{zone_unique_id_suffix}",
+        config_entry=entry,
+    ).entity_id
+
+    await hass.config_entries.async_unload(entry.entry_id)
+    await hass.async_block_till_done()
+
+    assert entity_registry.async_get(stray_entity_id) is None

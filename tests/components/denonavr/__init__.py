@@ -1,7 +1,11 @@
 """Tests for the Denon AVR Network Receivers integration."""
 
+import asyncio
 from collections.abc import Mapping
+from datetime import timedelta
 from typing import Any
+
+from freezegun.api import FrozenDateTimeFactory
 
 from homeassistant.components.denonavr.config_flow import (
     CONF_MANUFACTURER,
@@ -13,7 +17,7 @@ from homeassistant.const import CONF_HOST, CONF_MODEL
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import entity_registry as er
 
-from tests.common import MockConfigEntry
+from tests.common import MockConfigEntry, async_fire_time_changed
 
 TEST_HOST = "1.2.3.4"
 TEST_NAME = "Test_Receiver"
@@ -61,3 +65,22 @@ def get_entity_id(entity_registry: er.EntityRegistry, domain: str, key: str) -> 
     )
     assert entity_id is not None
     return entity_id
+
+
+async def advance_time(
+    hass: HomeAssistant, freezer: FrozenDateTimeFactory, seconds: float
+) -> None:
+    """Move the clock on and let whatever falls due run."""
+    freezer.tick(timedelta(seconds=seconds))
+    async_fire_time_changed(hass)
+    await hass.async_block_till_done()
+
+
+async def wait_for_debounced_refresh(hass: HomeAssistant) -> None:
+    """Let a coordinator's debounced confirmation refresh actually fire.
+
+    async_block_till_done() alone returns before the debouncer's own task
+    has run, so the sleep hands it the loop first.
+    """
+    await asyncio.sleep(0)
+    await hass.async_block_till_done()

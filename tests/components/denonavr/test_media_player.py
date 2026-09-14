@@ -16,6 +16,8 @@ from denonavr.exceptions import (
     AvrInvalidResponseError,
     AvrNetworkError,
     AvrProcessingError,
+    AvrTimoutError,
+    DenonAvrError,
 )
 from freezegun.api import FrozenDateTimeFactory
 import pytest
@@ -36,9 +38,33 @@ from homeassistant.components.denonavr.services import (
     SERVICE_UPDATE_AUDYSSEY,
 )
 from homeassistant.components.homeassistant import SERVICE_UPDATE_ENTITY
+from homeassistant.components.media_player import (
+    ATTR_INPUT_SOURCE,
+    ATTR_MEDIA_ALBUM_NAME,
+    ATTR_MEDIA_ARTIST,
+    ATTR_MEDIA_CONTENT_TYPE,
+    ATTR_MEDIA_TITLE,
+    ATTR_MEDIA_VOLUME_LEVEL,
+    ATTR_MEDIA_VOLUME_MUTED,
+    ATTR_SOUND_MODE,
+    SERVICE_SELECT_SOUND_MODE,
+    SERVICE_SELECT_SOURCE,
+)
 from homeassistant.config_entries import ConfigEntryState
 from homeassistant.const import (
     ATTR_ENTITY_ID,
+    ATTR_SUPPORTED_FEATURES,
+    SERVICE_MEDIA_NEXT_TRACK,
+    SERVICE_MEDIA_PAUSE,
+    SERVICE_MEDIA_PLAY,
+    SERVICE_MEDIA_PLAY_PAUSE,
+    SERVICE_MEDIA_PREVIOUS_TRACK,
+    SERVICE_MEDIA_STOP,
+    SERVICE_TURN_OFF,
+    SERVICE_TURN_ON,
+    SERVICE_VOLUME_DOWN,
+    SERVICE_VOLUME_MUTE,
+    SERVICE_VOLUME_SET,
     SERVICE_VOLUME_UP,
     STATE_UNAVAILABLE,
     STATE_UNKNOWN,
@@ -108,6 +134,7 @@ async def test_update_entity_reads_before_returning(
         pytest.param(
             AvrCommandError("Could not set volume", "SetVolume"), id="command"
         ),
+        pytest.param(DenonAvrError("Unexpected"), id="generic"),
     ],
 )
 async def test_non_connectivity_error_does_not_mark_unavailable(
@@ -125,6 +152,39 @@ async def test_non_connectivity_error_does_not_mark_unavailable(
     )
 
     assert hass.states.get(ENTITY_ID).state != STATE_UNAVAILABLE
+
+
+@pytest.mark.parametrize(
+    "exception",
+    [
+        pytest.param(AvrTimoutError("Timed out", "SetVolume"), id="timeout"),
+        pytest.param(AvrNetworkError("Network error", "SetVolume"), id="network"),
+        pytest.param(AvrForbiddenError("Forbidden", "SetVolume"), id="forbidden"),
+        pytest.param(
+            AvrInvalidResponseError("Bad XML", "SetVolume"), id="invalid_response"
+        ),
+        pytest.param(
+            AvrIncompleteResponseError("Incomplete", "SetVolume"),
+            id="incomplete_response",
+        ),
+    ],
+)
+async def test_connectivity_error_marks_unavailable(
+    hass: HomeAssistant, client: MagicMock, exception: Exception
+) -> None:
+    """A command finding the receiver unreachable marks it unavailable at once."""
+    entry = await setup_denonavr(hass)
+    client.async_volume_up.side_effect = exception
+
+    await hass.services.async_call(
+        media_player.DOMAIN,
+        SERVICE_VOLUME_UP,
+        {ATTR_ENTITY_ID: ENTITY_ID},
+        blocking=True,
+    )
+
+    assert entry.runtime_data.coordinator.last_update_success is False
+    assert hass.states.get(ENTITY_ID).state == STATE_UNAVAILABLE
 
 
 @pytest.mark.parametrize(
@@ -232,6 +292,247 @@ async def test_dynamic_eq_attribute_updates_from_audyssey_coordinator(
     entry.runtime_data.audyssey_coordinator.async_update_listeners()
     await hass.async_block_till_done()
     assert hass.states.get(ENTITY_ID).attributes[ATTR_DYNAMIC_EQ] is False
+
+
+@pytest.mark.parametrize(
+    ("volume", "expected"),
+    [
+        pytest.param(None, None, id="unknown"),
+        pytest.param(20.0, 1.0, id="set"),
+    ],
+)
+async def test_volume_level(
+    hass: HomeAssistant,
+    client: MagicMock,
+    volume: float | None,
+    expected: float | None,
+) -> None:
+    """Volume is converted from Denon's range, or reported as unknown."""
+    client.volume = volume
+    await setup_denonavr(hass)
+
+    state = hass.states.get(ENTITY_ID)
+    assert state.attributes.get(ATTR_MEDIA_VOLUME_LEVEL) == expected
+
+
+async def test_supported_features_advertises_media_modes_for_netaudio(
+    hass: HomeAssistant, client: MagicMock
+) -> None:
+    """Play/pause/track-skip features are only advertised for netaudio sources."""
+    client.input_func = "Online Music"
+    client.netaudio_func_list = ["Online Music"]
+    await setup_denonavr(hass)
+
+    features = hass.states.get(ENTITY_ID).attributes[ATTR_SUPPORTED_FEATURES]
+    assert features & media_player.MediaPlayerEntityFeature.PLAY_MEDIA
+
+
+@pytest.mark.parametrize(
+    ("state", "expected"),
+    [
+        pytest.param("playing", "music", id="playing"),
+        pytest.param("on", "channel", id="on"),
+    ],
+)
+async def test_media_content_type(
+    hass: HomeAssistant, client: MagicMock, state: str, expected: str
+) -> None:
+    """Playing/paused reports music, everything else reports channel."""
+    client.state = state
+    await setup_denonavr(hass)
+
+    assert hass.states.get(ENTITY_ID).attributes[ATTR_MEDIA_CONTENT_TYPE] == expected
+
+
+@pytest.mark.parametrize(
+    ("attribute_setup", "expected"),
+    [
+        pytest.param(
+            {
+                "input_func": "Tuner",
+                "playing_func_list": ["Tuner"],
+                "title": None,
+                "frequency": "87.5",
+                "image_url": None,
+            },
+            "87.5",
+            id="frequency_fallback",
+        ),
+        pytest.param(
+            {
+                "input_func": "Tuner",
+                "playing_func_list": ["Tuner"],
+                "title": "A Title",
+                "image_url": None,
+            },
+            "A Title",
+            id="title_present",
+        ),
+        pytest.param(
+            {"input_func": "AUX", "playing_func_list": []},
+            "AUX",
+            id="not_a_playing_func",
+        ),
+    ],
+)
+async def test_media_title(
+    hass: HomeAssistant,
+    client: MagicMock,
+    attribute_setup: dict[str, object],
+    expected: str,
+) -> None:
+    """The title is the input name outside a playing source.
+
+    Otherwise it is the track title, falling back to the tuned frequency.
+    """
+    for name, value in attribute_setup.items():
+        setattr(client, name, value)
+    await setup_denonavr(hass)
+
+    assert hass.states.get(ENTITY_ID).attributes[ATTR_MEDIA_TITLE] == expected
+
+
+@pytest.mark.parametrize(
+    ("artist", "band", "expected"),
+    [
+        pytest.param(None, "FM", "FM", id="band_fallback"),
+        pytest.param("The Artist", "FM", "The Artist", id="artist_present"),
+    ],
+)
+async def test_media_artist(
+    hass: HomeAssistant,
+    client: MagicMock,
+    artist: str | None,
+    band: str,
+    expected: str,
+) -> None:
+    """The artist falls back to the tuner band when there's no artist."""
+    client.artist = artist
+    client.band = band
+    await setup_denonavr(hass)
+
+    assert hass.states.get(ENTITY_ID).attributes[ATTR_MEDIA_ARTIST] == expected
+
+
+@pytest.mark.parametrize(
+    ("album", "station", "expected"),
+    [
+        pytest.param(None, "Some Station", "Some Station", id="station_fallback"),
+        pytest.param("An Album", "Some Station", "An Album", id="album_present"),
+    ],
+)
+async def test_media_album_name(
+    hass: HomeAssistant,
+    client: MagicMock,
+    album: str | None,
+    station: str,
+    expected: str,
+) -> None:
+    """The album name falls back to the tuner station when there's no album."""
+    client.album = album
+    client.station = station
+    await setup_denonavr(hass)
+
+    assert hass.states.get(ENTITY_ID).attributes[ATTR_MEDIA_ALBUM_NAME] == expected
+
+
+async def test_extra_state_attributes_hidden_when_powered_off(
+    hass: HomeAssistant, client: MagicMock
+) -> None:
+    """No extra attributes are reported while the receiver is powered off."""
+    client.power = "STANDBY"
+    await setup_denonavr(hass)
+
+    state = hass.states.get(ENTITY_ID)
+    assert ATTR_DYNAMIC_EQ not in state.attributes
+
+
+@pytest.mark.parametrize(
+    ("service", "service_data", "receiver_method"),
+    [
+        pytest.param(SERVICE_MEDIA_PLAY_PAUSE, {}, "async_toggle_play_pause"),
+        pytest.param(SERVICE_MEDIA_PLAY, {}, "async_play"),
+        pytest.param(SERVICE_MEDIA_PAUSE, {}, "async_pause"),
+        pytest.param(SERVICE_MEDIA_STOP, {}, "async_stop"),
+        pytest.param(SERVICE_MEDIA_PREVIOUS_TRACK, {}, "async_previous_track"),
+        pytest.param(SERVICE_MEDIA_NEXT_TRACK, {}, "async_next_track"),
+        pytest.param(
+            SERVICE_SELECT_SOURCE,
+            {ATTR_INPUT_SOURCE: "AUX"},
+            "async_set_input_func",
+        ),
+        pytest.param(
+            SERVICE_SELECT_SOUND_MODE,
+            {ATTR_SOUND_MODE: "Music"},
+            "async_set_sound_mode",
+        ),
+        pytest.param(SERVICE_TURN_ON, {}, "async_power_on"),
+        pytest.param(SERVICE_TURN_OFF, {}, "async_power_off"),
+        pytest.param(SERVICE_VOLUME_DOWN, {}, "async_volume_down"),
+    ],
+)
+async def test_simple_command_wrappers(
+    hass: HomeAssistant,
+    client: MagicMock,
+    service: str,
+    service_data: dict[str, str],
+    receiver_method: str,
+) -> None:
+    """Each thin command wrapper calls its matching receiver method."""
+    # Needed for the play/pause/stop/track-skip services, which are
+    # only advertised while the current input is a netaudio source.
+    client.input_func = "NET"
+    client.netaudio_func_list = ["NET"]
+    await setup_denonavr(hass)
+
+    await hass.services.async_call(
+        media_player.DOMAIN,
+        service,
+        {ATTR_ENTITY_ID: ENTITY_ID, **service_data},
+        blocking=True,
+    )
+
+    getattr(client, receiver_method).assert_awaited_once()
+
+
+@pytest.mark.parametrize(
+    ("volume", "expected_denon_volume"),
+    [
+        pytest.param(0.8, -0.0, id="mid_range"),
+        pytest.param(1.0, 18.0, id="clamped_to_max"),
+    ],
+)
+async def test_set_volume_level_converts_and_clamps(
+    hass: HomeAssistant,
+    client: MagicMock,
+    volume: float,
+    expected_denon_volume: float,
+) -> None:
+    """Volume is converted to Denon's range and clamped at its maximum."""
+    await setup_denonavr(hass)
+
+    await hass.services.async_call(
+        media_player.DOMAIN,
+        SERVICE_VOLUME_SET,
+        {ATTR_ENTITY_ID: ENTITY_ID, ATTR_MEDIA_VOLUME_LEVEL: volume},
+        blocking=True,
+    )
+
+    client.async_set_volume.assert_awaited_once_with(expected_denon_volume)
+
+
+async def test_mute_volume(hass: HomeAssistant, client: MagicMock) -> None:
+    """The mute service calls through to the receiver."""
+    await setup_denonavr(hass)
+
+    await hass.services.async_call(
+        media_player.DOMAIN,
+        SERVICE_VOLUME_MUTE,
+        {ATTR_ENTITY_ID: ENTITY_ID, ATTR_MEDIA_VOLUME_MUTED: True},
+        blocking=True,
+    )
+
+    client.async_mute.assert_awaited_once_with(True)
 
 
 @pytest.mark.parametrize(

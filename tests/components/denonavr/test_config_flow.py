@@ -109,6 +109,7 @@ async def test_config_flow_manual_host_success(hass: HomeAssistant) -> None:
 
     assert result["type"] is FlowResultType.CREATE_ENTRY
     assert result["title"] == TEST_NAME
+    assert result["result"].unique_id == TEST_UNIQUE_ID
     assert result["data"] == {
         CONF_HOST: TEST_HOST,
         CONF_MODEL: TEST_MODEL,
@@ -143,6 +144,7 @@ async def test_config_flow_manual_discover_1_success(hass: HomeAssistant) -> Non
 
     assert result["type"] is FlowResultType.CREATE_ENTRY
     assert result["title"] == TEST_NAME
+    assert result["result"].unique_id == TEST_UNIQUE_ID
     assert result["data"] == {
         CONF_HOST: TEST_HOST,
         CONF_MODEL: TEST_MODEL,
@@ -186,6 +188,7 @@ async def test_config_flow_manual_discover_2_success(hass: HomeAssistant) -> Non
 
     assert result["type"] is FlowResultType.CREATE_ENTRY
     assert result["title"] == TEST_NAME
+    assert result["result"].unique_id == TEST_UNIQUE_ID
     assert result["data"] == {
         CONF_HOST: TEST_HOST2,
         CONF_MODEL: TEST_MODEL,
@@ -247,6 +250,7 @@ async def test_config_flow_manual_host_no_serial(hass: HomeAssistant) -> None:
 
     assert result["type"] is FlowResultType.CREATE_ENTRY
     assert result["title"] == TEST_NAME
+    assert result["result"].unique_id is None
     assert result["data"] == {
         CONF_HOST: TEST_HOST,
         CONF_MODEL: TEST_MODEL,
@@ -314,6 +318,24 @@ async def test_config_flow_manual_host_no_device_info(hass: HomeAssistant) -> No
     assert result["reason"] == "cannot_connect"
 
 
+async def test_config_flow_manual_host_already_configured(
+    hass: HomeAssistant,
+) -> None:
+    """A receiver already set up under its unique ID is not added twice."""
+    MockConfigEntry(domain=DOMAIN, unique_id=TEST_UNIQUE_ID).add_to_hass(hass)
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN, context={"source": config_entries.SOURCE_USER}
+    )
+
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"],
+        {CONF_HOST: TEST_HOST2},
+    )
+
+    assert result["type"] is FlowResultType.ABORT
+    assert result["reason"] == "already_configured"
+
+
 async def test_config_flow_ssdp(hass: HomeAssistant) -> None:
     """Successful flow initialized by ssdp discovery."""
     result = await hass.config_entries.flow.async_init(
@@ -341,6 +363,7 @@ async def test_config_flow_ssdp(hass: HomeAssistant) -> None:
 
     assert result["type"] is FlowResultType.CREATE_ENTRY
     assert result["title"] == TEST_NAME
+    assert result["result"].unique_id == TEST_UNIQUE_ID
     assert result["data"] == {
         CONF_HOST: TEST_HOST,
         CONF_MODEL: TEST_MODEL,

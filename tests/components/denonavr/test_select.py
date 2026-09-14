@@ -2,7 +2,6 @@
 
 import asyncio
 from collections.abc import Callable
-from datetime import timedelta
 from unittest.mock import MagicMock, create_autospec, patch
 
 from denonavr import DenonAVR
@@ -35,30 +34,17 @@ from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError, ServiceValidationError
 from homeassistant.helpers import entity_registry as er
 
-from . import TEST_HOST, get_entity_id, setup_denonavr
+from . import (
+    TEST_HOST,
+    advance_time,
+    get_entity_id,
+    setup_denonavr,
+    wait_for_debounced_refresh,
+)
 
-from tests.common import async_fire_time_changed, snapshot_platform
+from tests.common import snapshot_platform
 
 pytestmark = pytest.mark.usefixtures("fast_action_refresh_debounce")
-
-
-async def _wait_for_debounced_refresh(hass: HomeAssistant) -> None:
-    """Let a coordinator's debounced confirmation refresh actually fire.
-
-    async_block_till_done() alone returns before the debouncer's own task
-    has run, so the sleep hands it the loop first.
-    """
-    await asyncio.sleep(0)
-    await hass.async_block_till_done()
-
-
-async def _advance(
-    hass: HomeAssistant, freezer: FrozenDateTimeFactory, seconds: float
-) -> None:
-    """Move the clock on and let whatever falls due run."""
-    freezer.tick(timedelta(seconds=seconds))
-    async_fire_time_changed(hass)
-    await hass.async_block_till_done()
 
 
 async def _select_option(hass: HomeAssistant, entity_id: str, option: str) -> None:
@@ -431,7 +417,7 @@ async def test_select_option_confirms_with_one_read(
 
     await _select_option(hass, entity_id, option)
     # blocking=True returns before the debounced confirmation refresh runs.
-    await _wait_for_debounced_refresh(hass)
+    await wait_for_debounced_refresh(hass)
 
     assert getattr(client, update).await_count == reads_before + 1
 
@@ -585,7 +571,7 @@ async def test_telnet_push_keeps_an_actions_confirmation_refresh(
     await _select_option(hass, entity_id, "dark")
     leave_status(entry.runtime_data.coordinator)
     fire_telnet_event("Main", "MV", "50")
-    await _wait_for_debounced_refresh(hass)
+    await wait_for_debounced_refresh(hass)
 
     assert hass.states.get(entity_id).state != STATE_UNAVAILABLE
     assert client.async_update.await_count == baseline_calls + 1
@@ -648,7 +634,7 @@ async def test_option_shown_immediately_even_if_refresh_reads_back_stale_value(
 
     await _select_option(hass, entity_id, "dark")
     # Let the debounced confirmation refresh run its stale read.
-    await _wait_for_debounced_refresh(hass)
+    await wait_for_debounced_refresh(hass)
 
     client.async_dimmer.assert_awaited_once_with("Dark")
     assert hass.states.get(entity_id).state == "dark"
@@ -686,7 +672,28 @@ async def test_pending_option_expires_instead_of_masking_forever(
     # The front panel changes it to something else entirely while the
     # override is pending.
     client.dimmer = "Dim"
-    await _advance(hass, freezer, PENDING_VALUE_TIMEOUT + 1)
+    await advance_time(hass, freezer, PENDING_VALUE_TIMEOUT + 1)
+
+    assert hass.states.get(entity_id).state == "dim"
+
+
+@pytest.mark.usefixtures("client")
+async def test_second_pending_value_cancels_first_ones_expiry_timer(
+    hass: HomeAssistant,
+    entity_registry: er.EntityRegistry,
+    freezer: FrozenDateTimeFactory,
+) -> None:
+    """A second command before the first's pending value expires restarts it.
+
+    Otherwise the first command's timer would drop the second's value early.
+    """
+    await setup_denonavr(hass)
+    entity_id = get_entity_id(entity_registry, SELECT_DOMAIN, "dimmer")
+
+    await _select_option(hass, entity_id, "dark")
+    await advance_time(hass, freezer, PENDING_VALUE_TIMEOUT / 2)
+    await _select_option(hass, entity_id, "dim")
+    await advance_time(hass, freezer, PENDING_VALUE_TIMEOUT / 2 + 1)
 
     assert hass.states.get(entity_id).state == "dim"
 
@@ -720,10 +727,10 @@ async def test_pending_expiry_reads_the_receiver(
 
     await _select_option(hass, entity_id, "dark")
     # Well short of the expiry, so only the confirming refresh runs.
-    await _advance(hass, freezer, 1)
+    await advance_time(hass, freezer, 1)
     calls_after_action = client.async_update.await_count
 
-    await _advance(hass, freezer, PENDING_VALUE_TIMEOUT)
+    await advance_time(hass, freezer, PENDING_VALUE_TIMEOUT)
 
     assert client.async_update.await_count == calls_after_action + 1
 
@@ -751,7 +758,7 @@ async def test_expiries_of_settings_changed_together_share_one_refresh(
     # Well short of the expiry, so only the confirming refreshes run and
     # the count below covers the two expiries alone. The receiver never
     # reports the new values, so both stay pending.
-    await _advance(hass, freezer, 1)
+    await advance_time(hass, freezer, 1)
     calls_after_actions = client.async_update_audyssey.await_count
 
     async def _suspending_update(*args: object, **kwargs: object) -> None:
@@ -761,7 +768,7 @@ async def test_expiries_of_settings_changed_together_share_one_refresh(
 
     client.async_update_audyssey.side_effect = _suspending_update
 
-    await _advance(hass, freezer, PENDING_VALUE_TIMEOUT + 1)
+    await advance_time(hass, freezer, PENDING_VALUE_TIMEOUT + 1)
 
     assert client.async_update_audyssey.await_count == calls_after_actions + 1
 
@@ -833,7 +840,7 @@ async def test_toggling_switch_updates_dependent_select(
         {ATTR_ENTITY_ID: switch_entity_id},
         blocking=True,
     )
-    await _wait_for_debounced_refresh(hass)
+    await wait_for_debounced_refresh(hass)
 
     assert client.async_update_audyssey.await_count == audyssey_reads + 1
     assert hass.states.get(switch_entity_id).state == STATE_OFF
