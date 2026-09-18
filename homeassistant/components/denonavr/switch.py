@@ -52,6 +52,24 @@ SWITCH_TYPES: tuple[DenonAvrSwitchEntityDescription, ...] = (
         error_label="Dynamic EQ",
         uses_settings_coordinator=True,
     ),
+    DenonAvrSwitchEntityDescription(
+        key="auto_lip_sync",
+        translation_key="auto_lip_sync",
+        entity_category=EntityCategory.CONFIG,
+        is_on_fn=lambda receiver: receiver.auto_lip_sync,
+        # Not async_auto_lip_sync_toggle(): that decides on a state only
+        # the Telnet callback ever writes, so on an HTTP-only receiver
+        # it always turns the setting on.
+        set_fn=lambda receiver, on: (
+            receiver.async_auto_lip_sync_on()
+            if on
+            else receiver.async_auto_lip_sync_off()
+        ),
+        error_label="Auto lip sync",
+        # Without Telnet the value comes from GetAudioDelay, which only
+        # this coordinator's request fetches.
+        uses_settings_coordinator=True,
+    ),
 )
 
 

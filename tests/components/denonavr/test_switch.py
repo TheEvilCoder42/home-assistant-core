@@ -3,7 +3,7 @@
 import asyncio
 from unittest.mock import MagicMock, patch
 
-from denonavr.exceptions import AvrCommandError
+from denonavr.exceptions import AvrCommandError, AvrNetworkError
 import pytest
 
 from homeassistant.components.denonavr.config_flow import DOMAIN
@@ -415,3 +415,103 @@ async def test_pending_state_expires_instead_of_masking_forever(
         await async_update_entity(hass, entity_id)
 
         assert hass.states.get(entity_id).state == "on"
+
+
+async def test_auto_lip_sync_state_on(hass: HomeAssistant, client: MagicMock) -> None:
+    """Test the switch reports on when Auto lip sync is on."""
+    await setup_denonavr(hass)
+
+    entity_id = _entity_id(hass, SWITCH_DOMAIN, "auto_lip_sync")
+    state = hass.states.get(entity_id)
+    assert state
+    assert state.state == "on"
+
+
+async def test_auto_lip_sync_unavailable_when_unknown(
+    hass: HomeAssistant, client: MagicMock
+) -> None:
+    """A receiver that reports no Auto lip sync state gives unavailable, not off.
+
+    The receiver only reports it over Telnet or through GetAudioDelay,
+    so "no value yet" has to be distinguishable from "off".
+    """
+    client.auto_lip_sync = None
+    await setup_denonavr(hass)
+
+    entity_id = _entity_id(hass, SWITCH_DOMAIN, "auto_lip_sync")
+    state = hass.states.get(entity_id)
+    assert state
+    assert state.state == STATE_UNAVAILABLE
+
+
+@pytest.mark.parametrize(
+    ("service", "called", "not_called"),
+    [
+        pytest.param(
+            SERVICE_TURN_ON,
+            "async_auto_lip_sync_on",
+            "async_auto_lip_sync_off",
+            id="turn_on",
+        ),
+        pytest.param(
+            SERVICE_TURN_OFF,
+            "async_auto_lip_sync_off",
+            "async_auto_lip_sync_on",
+            id="turn_off",
+        ),
+    ],
+)
+async def test_set_auto_lip_sync(
+    hass: HomeAssistant,
+    client: MagicMock,
+    service: str,
+    called: str,
+    not_called: str,
+) -> None:
+    """Each direction sends its own command, never the toggle.
+
+    async_auto_lip_sync_toggle() decides on a state only the Telnet
+    callback ever writes, so on an HTTP-only receiver it reads None and
+    always turns the setting on.
+    """
+    await setup_denonavr(hass)
+    entity_id = _entity_id(hass, SWITCH_DOMAIN, "auto_lip_sync")
+
+    await hass.services.async_call(
+        SWITCH_DOMAIN,
+        service,
+        {ATTR_ENTITY_ID: entity_id},
+        blocking=True,
+    )
+
+    getattr(client, called).assert_awaited_once()
+    getattr(client, not_called).assert_not_awaited()
+    client.async_auto_lip_sync_toggle.assert_not_awaited()
+
+
+async def test_auto_lip_sync_connectivity_error_marks_both_unavailable(
+    hass: HomeAssistant, client: MagicMock
+) -> None:
+    """A connectivity failure on set marks both coordinators unavailable.
+
+    Same symmetry the Audyssey-backed select entities already have (see
+    test_select.py): the receiver being unreachable is receiver-wide
+    news, not news about this one setting.
+    """
+    entry = await setup_denonavr(hass)
+    entity_id = _entity_id(hass, SWITCH_DOMAIN, "auto_lip_sync")
+
+    client.async_auto_lip_sync_on.side_effect = AvrNetworkError(
+        "Connection refused", "SetAudioDelay"
+    )
+
+    with pytest.raises(HomeAssistantError):
+        await hass.services.async_call(
+            SWITCH_DOMAIN,
+            SERVICE_TURN_ON,
+            {ATTR_ENTITY_ID: entity_id},
+            blocking=True,
+        )
+
+    assert entry.runtime_data.settings_coordinator.last_update_success is False
+    assert entry.runtime_data.coordinator.last_update_success is False
