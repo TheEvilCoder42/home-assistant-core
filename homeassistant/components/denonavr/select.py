@@ -32,9 +32,10 @@ class DenonAvrSelectEntityDescription(SelectEntityDescription):
     # Whether the setting can currently be changed (e.g. Reference Level
     # Offset requires Dynamic EQ to be on).
     available_fn: Callable[[DenonAVR], bool] = lambda receiver: True
-    # Audyssey values need the coordinator whose poll is conditional on
-    # "Update Audyssey settings"; everything else reads with the status one.
-    uses_audyssey_coordinator: bool = False
+    # AppCommand0300 values need the coordinator whose poll is conditional
+    # on "Update audio settings periodically"; everything else reads with
+    # the status one.
+    uses_settings_coordinator: bool = False
     # For a setting whose available_fn reads a value the other coordinator
     # holds: without Telnet, only that one's refresh sees it change.
     follows_other_coordinator: bool = False
@@ -51,7 +52,7 @@ SELECT_TYPES: tuple[DenonAvrSelectEntityDescription, ...] = (
         available_fn=lambda receiver: (
             audyssey_available(receiver) and bool(receiver.dynamic_eq)
         ),
-        uses_audyssey_coordinator=True,
+        uses_settings_coordinator=True,
         follows_other_coordinator=True,
     ),
     DenonAvrSelectEntityDescription(
@@ -66,7 +67,7 @@ SELECT_TYPES: tuple[DenonAvrSelectEntityDescription, ...] = (
         available_fn=lambda receiver: (
             audyssey_available(receiver) and receiver.multi_eq != "Off"
         ),
-        uses_audyssey_coordinator=True,
+        uses_settings_coordinator=True,
         follows_other_coordinator=True,
     ),
     DenonAvrSelectEntityDescription(
@@ -85,7 +86,7 @@ SELECT_TYPES: tuple[DenonAvrSelectEntityDescription, ...] = (
         # Manual is settable over Telnet only.
         settable_values_fn=lambda receiver: receiver.multi_eq_setting_list,
         available_fn=audyssey_available,
-        uses_audyssey_coordinator=True,
+        uses_settings_coordinator=True,
         follows_other_coordinator=True,
     ),
     DenonAvrSelectEntityDescription(
@@ -147,8 +148,8 @@ class DenonAvrSelect(DenonAvrPendingValueEntity[str], SelectEntity):
         """Initialize the select entity."""
         data = config_entry.runtime_data
         super().__init__(
-            data.audyssey_coordinator
-            if description.uses_audyssey_coordinator
+            data.settings_coordinator
+            if description.uses_settings_coordinator
             else data.coordinator,
             config_entry,
             description.key,

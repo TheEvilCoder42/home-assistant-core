@@ -235,7 +235,7 @@ async def test_non_connectivity_error_does_not_mark_unavailable(
     assert err.value.translation_key == translation_key
     assert str(err.value) == message
     assert entry.runtime_data.coordinator.last_update_success
-    assert entry.runtime_data.audyssey_coordinator.last_update_success
+    assert entry.runtime_data.settings_coordinator.last_update_success
     assert hass.states.get(ENTITY_ID).state != STATE_UNAVAILABLE
 
 
@@ -370,10 +370,10 @@ async def test_audyssey_command_failure_logs_once_with_polling_disabled(
     assert caplog.text.count("Error requesting denonavr_") == 1
 
 
-async def test_dynamic_eq_attribute_updates_from_audyssey_coordinator(
+async def test_dynamic_eq_attribute_updates_from_settings_coordinator(
     hass: HomeAssistant, client: MagicMock
 ) -> None:
-    """The dynamic_eq attribute refreshes when the Audyssey coordinator does.
+    """The dynamic_eq attribute refreshes when the settings coordinator does.
 
     CoordinatorEntity subscribes this entity to the general status
     coordinator alone, which is not the one that fetches Audyssey data.
@@ -381,12 +381,12 @@ async def test_dynamic_eq_attribute_updates_from_audyssey_coordinator(
     entry = await setup_denonavr(hass)
     client.power = POWER_ON
     client.dynamic_eq = True
-    entry.runtime_data.audyssey_coordinator.async_update_listeners()
+    entry.runtime_data.settings_coordinator.async_update_listeners()
     await hass.async_block_till_done()
     assert hass.states.get(ENTITY_ID).attributes[ATTR_DYNAMIC_EQ] is True
 
     client.dynamic_eq = False
-    entry.runtime_data.audyssey_coordinator.async_update_listeners()
+    entry.runtime_data.settings_coordinator.async_update_listeners()
     await hass.async_block_till_done()
     assert hass.states.get(ENTITY_ID).attributes[ATTR_DYNAMIC_EQ] is False
 
@@ -645,10 +645,10 @@ async def test_mute_volume(hass: HomeAssistant, client: MagicMock) -> None:
         ),
     ],
 )
-async def test_set_dynamic_eq_connectivity_error_marks_audyssey_unavailable(
+async def test_set_dynamic_eq_connectivity_error_marks_settings_unavailable(
     hass: HomeAssistant, client: MagicMock, exception: Exception, available: bool
 ) -> None:
-    """A connectivity failure here also affects the Audyssey coordinator.
+    """A connectivity failure here also affects the settings coordinator.
 
     This command is Audyssey-scoped, sent directly to the receiver
     rather than through that coordinator - so on a connectivity
@@ -669,7 +669,7 @@ async def test_set_dynamic_eq_connectivity_error_marks_audyssey_unavailable(
         )
 
     assert entry.runtime_data.coordinator.last_update_success is available
-    assert entry.runtime_data.audyssey_coordinator.last_update_success is available
+    assert entry.runtime_data.settings_coordinator.last_update_success is available
 
 
 async def test_dynamic_eq(hass: HomeAssistant, client: MagicMock) -> None:
@@ -717,7 +717,7 @@ async def test_update_audyssey(
 
     # Setup fetches this once too, so the assertion is on the one call the
     # service adds rather than on a fixed total.
-    calls_before_service = client.async_update_audyssey.call_count
+    calls_before_service = client.async_update_settings.call_count
 
     await hass.services.async_call(
         DOMAIN,
@@ -726,7 +726,7 @@ async def test_update_audyssey(
     )
     await hass.async_block_till_done()
 
-    assert client.async_update_audyssey.call_count == calls_before_service + 1
+    assert client.async_update_settings.call_count == calls_before_service + 1
     assert "data recovered" not in caplog.text
 
 
@@ -735,7 +735,7 @@ async def test_concurrent_forced_refreshes_share_one_bypassing_fetch(
 ) -> None:
     """Overlapping forced refreshes fetch once.
 
-    Each would otherwise run the slow Audyssey query again behind the lock, or
+    Each would otherwise run the slow settings query again behind the lock, or
     skip on a bypass flag the other had already cleared.
     """
     client.telnet_connected = True
@@ -743,22 +743,22 @@ async def test_concurrent_forced_refreshes_share_one_bypassing_fetch(
     entry = await setup_denonavr(
         hass, options={CONF_USE_TELNET: True, CONF_UPDATE_AUDYSSEY: True}
     )
-    audyssey_coordinator = entry.runtime_data.audyssey_coordinator
+    settings_coordinator = entry.runtime_data.settings_coordinator
 
-    async def _suspending_update() -> None:
+    async def _suspending_update(*args: object, **kwargs: object) -> None:
         # Yields so the second caller arrives while the first still
         # refreshes; without it the mock never suspends.
         await asyncio.sleep(0)
 
-    client.async_update_audyssey.side_effect = _suspending_update
-    calls_before = client.async_update_audyssey.call_count
+    client.async_update_settings.side_effect = _suspending_update
+    calls_before = client.async_update_settings.call_count
 
     await asyncio.gather(
-        audyssey_coordinator.async_refresh_forced(),
-        audyssey_coordinator.async_refresh_forced(),
+        settings_coordinator.async_refresh_forced(),
+        settings_coordinator.async_refresh_forced(),
     )
 
-    assert client.async_update_audyssey.call_count == calls_before + 1
+    assert client.async_update_settings.call_count == calls_before + 1
 
 
 @pytest.mark.parametrize(
@@ -781,7 +781,7 @@ async def test_concurrent_forced_refreshes_share_one_bypassing_fetch(
         pytest.param(False, id="telnet_recovers_after_setup"),
     ],
 )
-async def test_initial_audyssey_failure_makes_the_status_poll_read(
+async def test_initial_settings_failure_makes_the_status_poll_read(
     hass: HomeAssistant,
     client: MagicMock,
     freezer: FrozenDateTimeFactory,
@@ -789,14 +789,14 @@ async def test_initial_audyssey_failure_makes_the_status_poll_read(
     side_effect: Exception | None,
     expected_state: str,
 ) -> None:
-    """A failed Audyssey fetch at setup makes the next status poll read.
+    """A failed settings fetch at setup makes the next status poll read.
 
     With Telnet healthy that poll would otherwise skip, never asking the
-    receiver the Audyssey fetch just failed to reach. Its own read decides.
+    receiver the settings fetch just failed to reach. Its own read decides.
     """
     client.telnet_connected = True
     client.telnet_healthy = telnet_healthy_at_setup
-    client.async_update_audyssey.side_effect = AvrNetworkError("Network error", "test")
+    client.async_update_settings.side_effect = AvrNetworkError("Network error", "test")
     await setup_denonavr(hass, options={CONF_USE_TELNET: True})
     client.telnet_healthy = True
     client.async_update.side_effect = side_effect
@@ -810,11 +810,11 @@ async def test_initial_audyssey_failure_makes_the_status_poll_read(
     assert hass.states.get(ENTITY_ID).state == expected_state
 
 
-async def test_initial_audyssey_failure_reaches_a_status_coordinator_not_polling(
+async def test_initial_settings_failure_reaches_a_status_coordinator_not_polling(
     hass: HomeAssistant, client: MagicMock
 ) -> None:
     """With polling disabled for the entry, no poll of its own would find it."""
-    client.async_update_audyssey.side_effect = AvrNetworkError("Network error", "test")
+    client.async_update_settings.side_effect = AvrNetworkError("Network error", "test")
 
     await setup_denonavr(hass, pref_disable_polling=True)
 
@@ -841,13 +841,13 @@ async def test_initial_audyssey_failure_reaches_a_status_coordinator_not_polling
         ),
     ],
 )
-async def test_setup_survives_initial_audyssey_failure(
+async def test_setup_survives_initial_settings_failure(
     hass: HomeAssistant,
     client: MagicMock,
     options: dict[str, bool],
     exception: Exception,
 ) -> None:
-    """The setup-time Audyssey fetch must not keep the entry from loading.
+    """The setup-time settings fetch must not keep the entry from loading.
 
     It runs in every configuration, on a receiver the connection step has
     already reached, so a failure leaves the Audyssey data unset instead of
@@ -855,13 +855,13 @@ async def test_setup_survives_initial_audyssey_failure(
     """
     client.telnet_connected = options.get(CONF_USE_TELNET, False)
     client.telnet_healthy = client.telnet_connected
-    client.async_update_audyssey.side_effect = exception
+    client.async_update_settings.side_effect = exception
 
     entry = await setup_denonavr(hass, options=options)
 
     assert entry.state is ConfigEntryState.LOADED
     # Forced, so the Telnet-healthy skip does not swallow it.
-    client.async_update_audyssey.assert_awaited()
+    client.async_update_settings.assert_awaited()
 
 
 @pytest.mark.parametrize(
@@ -909,13 +909,13 @@ async def test_unavailable_coordinator_reads_before_recovering(
     ("failing", "reading", "failing_method"),
     [
         pytest.param(
-            "coordinator", "audyssey_coordinator", "async_update", id="status_fails"
+            "coordinator", "settings_coordinator", "async_update", id="status_fails"
         ),
         pytest.param(
-            "audyssey_coordinator",
+            "settings_coordinator",
             "coordinator",
-            "async_update_audyssey",
-            id="audyssey_fails",
+            "async_update_settings",
+            id="settings_fails",
         ),
     ],
 )
@@ -951,25 +951,25 @@ async def test_repeated_failure_still_reaches_a_coordinator_without_a_poll(
 
     DataUpdateCoordinator stops notifying listeners once a failure repeats, so
     a peer that went available in between would otherwise stay that way with
-    no poll to check again. Audyssey has no recurring poll here.
+    no poll to check again. The settings one has no recurring poll here.
     """
     entry = await setup_denonavr(hass)
     coordinator = entry.runtime_data.coordinator
-    audyssey_coordinator = entry.runtime_data.audyssey_coordinator
+    settings_coordinator = entry.runtime_data.settings_coordinator
     client.async_update.side_effect = AvrNetworkError("Network error", "test")
 
     await coordinator.async_refresh()
 
-    assert audyssey_coordinator.last_update_success is False
+    assert settings_coordinator.last_update_success is False
 
     # Its own fetch answers, but it has no poll to keep confirming that.
-    await audyssey_coordinator.async_refresh()
+    await settings_coordinator.async_refresh()
 
-    assert audyssey_coordinator.last_update_success is True
+    assert settings_coordinator.last_update_success is True
 
     await coordinator.async_refresh()
 
-    assert audyssey_coordinator.last_update_success is False
+    assert settings_coordinator.last_update_success is False
 
 
 @pytest.mark.usefixtures("client")
@@ -983,20 +983,20 @@ async def test_repeated_command_failure_still_reaches_a_coordinator_without_a_po
     """
     entry = await setup_denonavr(hass, pref_disable_polling=True)
     coordinator = entry.runtime_data.coordinator
-    audyssey_coordinator = entry.runtime_data.audyssey_coordinator
+    settings_coordinator = entry.runtime_data.settings_coordinator
 
     mark_unavailable(coordinator, AvrNetworkError("Connection refused", "GET"))
 
-    assert audyssey_coordinator.last_update_success is False
+    assert settings_coordinator.last_update_success is False
 
     # A read of its own answers while the status coordinator is still down.
-    await audyssey_coordinator.async_refresh()
+    await settings_coordinator.async_refresh()
 
-    assert audyssey_coordinator.last_update_success is True
+    assert settings_coordinator.last_update_success is True
 
     mark_unavailable(coordinator, AvrNetworkError("Connection refused", "GET"))
 
-    assert audyssey_coordinator.last_update_success is False
+    assert settings_coordinator.last_update_success is False
 
 
 @pytest.mark.usefixtures("client")
@@ -1011,7 +1011,7 @@ async def test_update_audyssey_restores_availability(
     has updated the receiver's properties. The recovery is logged once.
     """
     entry = await setup_denonavr(hass)
-    entry.runtime_data.audyssey_coordinator.last_update_success = False
+    entry.runtime_data.settings_coordinator.last_update_success = False
 
     for _ in range(2):
         await hass.services.async_call(
@@ -1021,8 +1021,8 @@ async def test_update_audyssey_restores_availability(
             blocking=True,
         )
 
-    assert entry.runtime_data.audyssey_coordinator.last_update_success is True
-    assert caplog.text.count("Fetching denonavr_audyssey data recovered") == 1
+    assert entry.runtime_data.settings_coordinator.last_update_success is True
+    assert caplog.text.count("Fetching denonavr_settings data recovered") == 1
 
 
 async def test_update_audyssey_action_survives_a_receiver_without_audyssey(
@@ -1034,7 +1034,7 @@ async def test_update_audyssey_action_survives_a_receiver_without_audyssey(
     reason to raise at the caller or to hide the rest of its entities.
     """
     entry = await setup_denonavr(hass)
-    client.async_update_audyssey.side_effect = AvrIncompleteResponseError(
+    client.async_update_settings.side_effect = AvrIncompleteResponseError(
         "Invalid length of response XML", "test"
     )
 
@@ -1045,11 +1045,11 @@ async def test_update_audyssey_action_survives_a_receiver_without_audyssey(
         blocking=True,
     )
 
-    assert entry.runtime_data.audyssey_coordinator.last_update_success is True
+    assert entry.runtime_data.settings_coordinator.last_update_success is True
     assert hass.states.get(ENTITY_ID).state != STATE_UNAVAILABLE
 
 
-async def test_update_audyssey_fetches_only_the_targeted_zone(
+async def test_update_settings_fetches_only_the_targeted_zone(
     hass: HomeAssistant, client: MagicMock
 ) -> None:
     """The action refreshes the zone it was called on, not every zone.
@@ -1066,7 +1066,7 @@ async def test_update_audyssey_fetches_only_the_targeted_zone(
     client.zones = {TEST_ZONE: client, "Zone2": zone2}
 
     await setup_denonavr(hass)
-    calls_before = zone2.async_update_audyssey.await_count
+    calls_before = zone2.async_update_settings.await_count
 
     await hass.services.async_call(
         DOMAIN,
@@ -1075,8 +1075,8 @@ async def test_update_audyssey_fetches_only_the_targeted_zone(
     )
     await hass.async_block_till_done()
 
-    client.async_update_audyssey.assert_awaited()
-    assert zone2.async_update_audyssey.await_count == calls_before
+    client.async_update_settings.assert_awaited()
+    assert zone2.async_update_settings.await_count == calls_before
 
 
 @pytest.mark.parametrize(
@@ -1095,13 +1095,13 @@ async def test_update_audyssey_connectivity_error_marks_media_player_unavailable
     """A connectivity failure here also affects the general coordinator.
 
     This entity's own availability is tied to the general coordinator,
-    not the Audyssey one it's routed through here - without also
+    not the settings one it's routed through here - without also
     marking that one unavailable, a connectivity failure would leave
     this entity looking available despite just confirming the
     receiver itself is unreachable.
     """
     await setup_denonavr(hass)
-    client.async_update_audyssey.side_effect = exception
+    client.async_update_settings.side_effect = exception
 
     with pytest.raises(HomeAssistantError):
         await hass.services.async_call(
@@ -1114,13 +1114,13 @@ async def test_update_audyssey_connectivity_error_marks_media_player_unavailable
     assert hass.states.get(ENTITY_ID).state == STATE_UNAVAILABLE
 
 
-async def test_set_dynamic_eq_always_refreshes_audyssey(
+async def test_set_dynamic_eq_always_refreshes_settings(
     hass: HomeAssistant, client: MagicMock
 ) -> None:
-    """Refreshes Audyssey after this action regardless of the option.
+    """Refreshes the settings after this action regardless of the option.
 
-    "Update Audyssey settings" only governs the recurring poll - this
-    action just changed Audyssey-scoped data directly, and the
+    "Update audio settings periodically" only governs the recurring poll -
+    this action just changed Audyssey-scoped data directly, and the
     dynamic_eq attribute it feeds has to reflect that either way.
     """
     with patch(
@@ -1128,7 +1128,7 @@ async def test_set_dynamic_eq_always_refreshes_audyssey(
         0,
     ):
         await setup_denonavr(hass, options={CONF_UPDATE_AUDYSSEY: False})
-        calls_before = client.async_update_audyssey.await_count
+        calls_before = client.async_update_settings.await_count
 
         await hass.services.async_call(
             DOMAIN,
@@ -1138,10 +1138,10 @@ async def test_set_dynamic_eq_always_refreshes_audyssey(
         await asyncio.sleep(0)
         await hass.async_block_till_done()
 
-    assert client.async_update_audyssey.await_count > calls_before
+    assert client.async_update_settings.await_count > calls_before
 
 
-async def test_update_audyssey_keeps_a_pending_audyssey_refresh(
+async def test_update_audyssey_keeps_a_pending_settings_refresh(
     hass: HomeAssistant, client: MagicMock, freezer: FrozenDateTimeFactory
 ) -> None:
     """The action's own fetch must not cancel the refresh set_dynamic_eq queued.
@@ -1151,7 +1151,7 @@ async def test_update_audyssey_keeps_a_pending_audyssey_refresh(
     is needed: the action has to land inside it.
     """
     await setup_denonavr(hass)
-    calls_before = client.async_update_audyssey.await_count
+    calls_before = client.async_update_settings.await_count
 
     await hass.services.async_call(
         DOMAIN,
@@ -1170,7 +1170,7 @@ async def test_update_audyssey_keeps_a_pending_audyssey_refresh(
     await hass.async_block_till_done()
 
     # One fetch from the action, one from the refresh it must not cancel.
-    assert client.async_update_audyssey.await_count == calls_before + 2
+    assert client.async_update_settings.await_count == calls_before + 2
 
 
 async def test_setup_retry_on_request_error(

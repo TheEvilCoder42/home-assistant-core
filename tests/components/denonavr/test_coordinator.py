@@ -16,7 +16,7 @@ import pytest
 from homeassistant.components.denonavr.const import DOMAIN
 from homeassistant.components.denonavr.coordinator import (
     DenonAvrDataUpdateCoordinator,
-    async_refresh_audyssey,
+    async_refresh_settings,
     async_refresh_status,
     mark_unavailable,
 )
@@ -30,7 +30,7 @@ REFRESH_FUNCTIONS = pytest.mark.parametrize(
     ("refresh", "update_method"),
     [
         pytest.param(async_refresh_status, "async_update", id="status"),
-        pytest.param(async_refresh_audyssey, "async_update_audyssey", id="audyssey"),
+        pytest.param(async_refresh_settings, "async_update_settings", id="settings"),
     ],
 )
 
@@ -42,11 +42,11 @@ def _receiver_with_zones() -> tuple[MagicMock, MagicMock]:
     main.telnet_connected = False
     main.telnet_healthy = False
     main.async_update = AsyncMock()
-    main.async_update_audyssey = AsyncMock()
+    main.async_update_settings = AsyncMock()
     zone2 = MagicMock()
     zone2.zone = "Zone2"
     zone2.async_update = AsyncMock()
-    zone2.async_update_audyssey = AsyncMock()
+    zone2.async_update_settings = AsyncMock()
     main.zones = {"Main": main, "Zone2": zone2}
     return main, zone2
 
@@ -118,24 +118,24 @@ async def test_refresh_stops_every_zone_on_a_connectivity_error(
     getattr(zone2, update_method).assert_not_awaited()
 
 
-async def test_audyssey_refresh_tolerates_a_receiver_without_audyssey() -> None:
+async def test_settings_refresh_tolerates_a_receiver_without_audyssey() -> None:
     """A receiver that does not know the query answers it short.
 
     denonavr tolerates the AvrProcessingError form of that but not this one,
     and a missing feature is not an unreachable receiver.
     """
     main, zone2 = _receiver_with_zones()
-    main.async_update_audyssey.side_effect = AvrIncompleteResponseError(
+    main.async_update_settings.side_effect = AvrIncompleteResponseError(
         "Invalid length of response XML", "test"
     )
 
-    await async_refresh_audyssey(main)
+    await async_refresh_settings(main)
 
-    zone2.async_update_audyssey.assert_awaited_once()
+    zone2.async_update_settings.assert_awaited_once()
 
 
 async def test_status_refresh_still_fails_on_an_incomplete_response() -> None:
-    """Only the Audyssey query carries a tag a receiver may not know."""
+    """Only the settings query carries a tag a receiver may not know."""
     main, zone2 = _receiver_with_zones()
     main.async_update.side_effect = AvrIncompleteResponseError(
         "Invalid length of response XML", "test"

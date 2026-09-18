@@ -20,7 +20,7 @@ DEFAULT_UPDATE_AUDYSSEY = False
 DEFAULT_USE_TELNET = False
 
 # Seconds an optimistic pending value is trusted over the receiver's own,
-# comfortably above the ~10s an Audyssey fetch can take.
+# comfortably above the ~10s a settings fetch can take.
 PENDING_VALUE_TIMEOUT = 15
 
 # Shared by both coordinators, at the rate media_player.py polled at.
@@ -29,6 +29,7 @@ COORDINATOR_UPDATE_INTERVAL = 10
 # Delay action-triggered refreshes so the receiver can settle and coalesce changes.
 ACTION_REFRESH_DEBOUNCE_COOLDOWN = 0.5
 
-# The event group the Audyssey settings arrive in. __init__.py notifies the
-# Audyssey coordinator on it, whether or not media_player is enabled.
-AUDYSSEY_TELNET_EVENT = "PS"
+# The event group the Audyssey settings and the audio delay arrive in.
+# __init__.py notifies the settings coordinator on it, whether or not
+# media_player is enabled.
+SETTINGS_TELNET_EVENT = "PS"

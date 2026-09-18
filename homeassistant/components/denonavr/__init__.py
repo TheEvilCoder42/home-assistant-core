@@ -18,7 +18,6 @@ from homeassistant.helpers.httpx_client import get_async_client
 from homeassistant.helpers.typing import ConfigType
 
 from .const import (
-    AUDYSSEY_TELNET_EVENT,
     CONF_SHOW_ALL_SOURCES,
     CONF_UPDATE_AUDYSSEY,
     CONF_USE_TELNET,
@@ -32,10 +31,11 @@ from .const import (
     DEFAULT_ZONE2,
     DEFAULT_ZONE3,
     DOMAIN,
+    SETTINGS_TELNET_EVENT,
 )
 from .coordinator import (
     DenonAvrDataUpdateCoordinator,
-    async_refresh_audyssey,
+    async_refresh_settings,
     async_refresh_status,
     mark_available,
     mark_unavailable,
@@ -55,7 +55,7 @@ class DenonAvrData:
 
     receiver: DenonAVR
     coordinator: DenonAvrDataUpdateCoordinator
-    audyssey_coordinator: DenonAvrDataUpdateCoordinator
+    settings_coordinator: DenonAvrDataUpdateCoordinator
 
 
 type DenonavrConfigEntry = ConfigEntry[DenonAvrData]
@@ -117,82 +117,82 @@ async def async_setup_entry(hass: HomeAssistant, entry: DenonavrConfigEntry) -> 
     # before connecting, so this is skipped. Either read failing is not ready.
     await coordinator.async_config_entry_first_refresh()
 
-    audyssey_coordinator = DenonAvrDataUpdateCoordinator(
+    settings_coordinator = DenonAvrDataUpdateCoordinator(
         hass,
         entry,
         receiver,
         lock,
-        name="audyssey",
+        name="settings",
         # Opt-in because the fetch can take ~10s. It governs the recurring
         # poll alone: entities still confirm their own actions on demand.
         update_interval=update_interval if update_audyssey else None,
-        refresh_fn=async_refresh_audyssey,
+        refresh_fn=async_refresh_settings,
     )
-    coordinator.peer = audyssey_coordinator
-    audyssey_coordinator.peer = coordinator
+    coordinator.peer = settings_coordinator
+    settings_coordinator.peer = coordinator
 
     @callback
-    def _propagate_connectivity_to_audyssey() -> None:
+    def _propagate_connectivity_to_settings() -> None:
         """Reflect the status coordinator's connectivity into this one.
 
         Only while this coordinator has no poll of its own. One that polls
         reads on its next interval, since this failure forces it to, and its
         own read is the better evidence either way.
         """
-        if audyssey_coordinator.polls:
+        if settings_coordinator.polls:
             return
-        if audyssey_coordinator.last_update_success != coordinator.last_update_success:
-            audyssey_coordinator.last_update_success = coordinator.last_update_success
-            audyssey_coordinator.last_exception = coordinator.last_exception
-            audyssey_coordinator.async_update_listeners()
+        if settings_coordinator.last_update_success != coordinator.last_update_success:
+            settings_coordinator.last_update_success = coordinator.last_update_success
+            settings_coordinator.last_exception = coordinator.last_exception
+            settings_coordinator.async_update_listeners()
 
     entry.async_on_unload(
-        coordinator.async_add_internal_listener(_propagate_connectivity_to_audyssey)
+        coordinator.async_add_internal_listener(_propagate_connectivity_to_settings)
     )
 
     @callback
-    def _propagate_audyssey_failure_to_general() -> None:
-        """Reflect a confirmed Audyssey connectivity failure into the status one.
+    def _propagate_settings_failure_to_general() -> None:
+        """Reflect a confirmed settings connectivity failure into the status one.
 
         Only while the status coordinator has no poll of its own. One that
         polls reads on its next interval even with Telnet healthy, since this
         failure forces it to. Failure only; recovery is that coordinator's own
         to confirm.
         """
-        if not audyssey_coordinator.last_update_success and not coordinator.polls:
-            err = audyssey_coordinator.last_exception
+        if not settings_coordinator.last_update_success and not coordinator.polls:
+            err = settings_coordinator.last_exception
             assert isinstance(err, Exception)
             mark_unavailable(coordinator, err)
 
     entry.async_on_unload(
-        audyssey_coordinator.async_add_internal_listener(
-            _propagate_audyssey_failure_to_general
+        settings_coordinator.async_add_internal_listener(
+            _propagate_settings_failure_to_general
         )
     )
 
     # Nothing else populates these values: status queries skip them and Telnet
     # only pushes on a change. Forced, and after the listener above so a
     # failure reaches the status coordinator instead of failing setup.
-    await audyssey_coordinator.async_refresh_forced()
+    await settings_coordinator.async_refresh_forced()
 
     @callback
-    def _telnet_notify_audyssey(zone: str, event: str, parameter: str) -> None:
-        """Feed Telnet activity into the Audyssey coordinator.
+    def _telnet_notify_settings(zone: str, event: str, parameter: str) -> None:
+        """Feed Telnet activity into the settings coordinator.
 
         On the receiver rather than on an entity, whose callback would
         only run while that entity is enabled.
 
         A push is the receiver answering, so it clears an earlier
-        connectivity failure: without "Update Audyssey settings" there is no
-        poll to clear one. It keeps the refresh a Dynamic EQ change queued,
+        connectivity failure: without "Update audio settings periodically" there
+        is no poll to clear one. It keeps the refresh a Dynamic EQ change queued,
         which brings the other zones' copies in step: Telnet never pushes those.
         """
-        mark_available(audyssey_coordinator)
+        mark_available(settings_coordinator)
 
-    receiver.register_callback(AUDYSSEY_TELNET_EVENT, _telnet_notify_audyssey)
+    receiver.register_callback(SETTINGS_TELNET_EVENT, _telnet_notify_settings)
     entry.async_on_unload(
         lambda: receiver.unregister_callback(
-            AUDYSSEY_TELNET_EVENT, _telnet_notify_audyssey
+            SETTINGS_TELNET_EVENT, _telnet_notify_settings
         )
     )
 
@@ -221,7 +221,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: DenonavrConfigEntry) -> 
     entry.runtime_data = DenonAvrData(
         receiver=receiver,
         coordinator=coordinator,
-        audyssey_coordinator=audyssey_coordinator,
+        settings_coordinator=settings_coordinator,
     )
 
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)

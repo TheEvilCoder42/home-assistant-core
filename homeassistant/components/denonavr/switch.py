@@ -27,9 +27,10 @@ class DenonAvrSwitchEntityDescription(SwitchEntityDescription):
     set_fn: Callable[[DenonAVR, bool], Coroutine[Any, Any, None]]
     # Whether the setting can currently be changed.
     available_fn: Callable[[DenonAVR], bool] = lambda receiver: True
-    # Audyssey values need the coordinator whose poll is conditional on
-    # "Update Audyssey settings"; everything else reads with the status one.
-    uses_audyssey_coordinator: bool = False
+    # AppCommand0300 values need the coordinator whose poll is conditional
+    # on "Update audio settings periodically"; everything else reads with
+    # the status one.
+    uses_settings_coordinator: bool = False
     # For a setting whose available_fn reads a value the other coordinator
     # holds: without Telnet, only that one's refresh sees it change.
     follows_other_coordinator: bool = False
@@ -49,7 +50,7 @@ SWITCH_TYPES: tuple[DenonAvrSwitchEntityDescription, ...] = (
         available_fn=lambda receiver: (
             audyssey_available(receiver) and receiver.multi_eq != "Off"
         ),
-        uses_audyssey_coordinator=True,
+        uses_settings_coordinator=True,
         follows_other_coordinator=True,
     ),
 )
@@ -79,8 +80,8 @@ class DenonAvrSwitch(DenonAvrPendingValueEntity[bool], SwitchEntity):
         """Initialize the switch."""
         data = config_entry.runtime_data
         super().__init__(
-            data.audyssey_coordinator
-            if description.uses_audyssey_coordinator
+            data.settings_coordinator
+            if description.uses_settings_coordinator
             else data.coordinator,
             config_entry,
             description.key,

@@ -226,8 +226,8 @@ async def test_unload_removes_disabled_zone_entity(
     "event",
     [
         pytest.param("MV", id="status_event"),
-        # Reaches both coordinators' callbacks, the Audyssey one first.
-        pytest.param("PS", id="audyssey_event"),
+        # Reaches both coordinators' callbacks, the settings one first.
+        pytest.param("PS", id="settings_event"),
     ],
 )
 async def test_telnet_push_logs_recovery_once(
@@ -240,15 +240,15 @@ async def test_telnet_push_logs_recovery_once(
     """A push ending an outage logs the recovery once, as the drop was."""
     entry = await setup_denonavr(hass)
     coordinator = entry.runtime_data.coordinator
-    audyssey_coordinator = entry.runtime_data.audyssey_coordinator
+    settings_coordinator = entry.runtime_data.settings_coordinator
     mark_unavailable(coordinator, AvrNetworkError("Connection refused", "test"))
-    assert not audyssey_coordinator.last_update_success
+    assert not settings_coordinator.last_update_success
 
     fire_telnet_event("Main", event, "")
     fire_telnet_event("Main", event, "")
 
     assert coordinator.last_update_success
-    assert audyssey_coordinator.last_update_success
+    assert settings_coordinator.last_update_success
     assert caplog.text.count("data recovered") == 1
 
 

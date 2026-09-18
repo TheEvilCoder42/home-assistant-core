@@ -106,7 +106,7 @@ async def test_dynamic_eq_follows_direct_through_a_status_refresh(
     entry = await setup_denonavr(hass)
     entity_id = get_entity_id(entity_registry, SWITCH_DOMAIN, "dynamic_eq")
     assert hass.states.get(entity_id).state == STATE_ON
-    audyssey_reads = client.async_update_audyssey.await_count
+    settings_reads = client.async_update_settings.await_count
 
     client.sound_mode = sound_mode
     await entry.runtime_data.coordinator.async_refresh()
@@ -117,7 +117,7 @@ async def test_dynamic_eq_follows_direct_through_a_status_refresh(
     await entry.runtime_data.coordinator.async_refresh()
     await hass.async_block_till_done()
     assert hass.states.get(entity_id).state == STATE_ON
-    assert client.async_update_audyssey.await_count == audyssey_reads
+    assert client.async_update_settings.await_count == settings_reads
 
 
 @pytest.mark.parametrize(
@@ -199,7 +199,7 @@ async def test_turn_on_raises_on_avr_error(
         == f"Setting {entity_id} to on failed on {TEST_HOST}: {error_message}"
     )
     assert entry.runtime_data.coordinator.last_update_success is available
-    assert entry.runtime_data.audyssey_coordinator.last_update_success is available
+    assert entry.runtime_data.settings_coordinator.last_update_success is available
 
 
 @pytest.mark.parametrize(
@@ -235,7 +235,7 @@ async def test_toggling_switch_updates_dependent_select(
 ) -> None:
     """Toggling Audyssey Dynamic EQ off also updates Audyssey reference level offset.
 
-    Both entities share the Audyssey coordinator, so the refresh confirming
+    Both entities share the settings coordinator, so the refresh confirming
     the switch's action notifies the select too.
     """
     client.reference_level_offset = "0dB"
@@ -293,19 +293,19 @@ async def test_turn_on_shows_state_immediately_without_polling(
     assert hass.states.get(entity_id).state == STATE_ON
 
 
-async def test_turn_on_always_refreshes_audyssey_after_change(
+async def test_turn_on_always_refreshes_settings_after_change(
     hass: HomeAssistant, client: MagicMock, entity_registry: er.EntityRegistry
 ) -> None:
     """Dynamic EQ refreshes Audyssey data regardless of the option.
 
-    "Update Audyssey settings" governs the recurring poll alone - an
-    action that just changed Audyssey data still confirms itself.
+    "Update audio settings periodically" governs the recurring poll alone -
+    an action that just changed Audyssey data still confirms itself.
     """
     await setup_denonavr(hass, options={CONF_UPDATE_AUDYSSEY: False})
     entity_id = get_entity_id(entity_registry, SWITCH_DOMAIN, "dynamic_eq")
 
-    # Setup already does one initial Audyssey fetch.
-    baseline_calls = client.async_update_audyssey.await_count
+    # Setup already does one initial settings fetch.
+    baseline_calls = client.async_update_settings.await_count
 
     await hass.services.async_call(
         SWITCH_DOMAIN,
@@ -317,7 +317,7 @@ async def test_turn_on_always_refreshes_audyssey_after_change(
 
     # Just one call, since this is the only entity acting - HA's own
     # post-service-call poll doesn't apply here (should_poll=False).
-    assert client.async_update_audyssey.await_count == baseline_calls + 1
+    assert client.async_update_settings.await_count == baseline_calls + 1
 
 
 async def test_rapid_toggles_do_not_race(
@@ -369,9 +369,9 @@ async def test_state_shown_immediately_even_if_refresh_reads_back_stale_value(
     hass: HomeAssistant, client: MagicMock, entity_registry: er.EntityRegistry
 ) -> None:
     """A stale confirmation refresh must not revert a just-set state."""
-    # Simulate the receiver's Audyssey refresh responding with the old
+    # Simulate the receiver's settings refresh responding with the old
     # value, as if the command hadn't internally settled yet.
-    client.async_update_audyssey.side_effect = lambda *a, **k: None  # stays True
+    client.async_update_settings.side_effect = lambda *a, **k: None  # stays True
 
     await setup_denonavr(hass)
     entity_id = get_entity_id(entity_registry, SWITCH_DOMAIN, "dynamic_eq")
@@ -397,7 +397,7 @@ async def test_pending_state_expires_instead_of_masking_forever(
     freezer: FrozenDateTimeFactory,
 ) -> None:
     """A pending state must expire rather than mask reality forever."""
-    client.async_update_audyssey.side_effect = lambda *a, **k: None  # stays True
+    client.async_update_settings.side_effect = lambda *a, **k: None  # stays True
 
     await setup_denonavr(hass)
     entity_id = get_entity_id(entity_registry, SWITCH_DOMAIN, "dynamic_eq")
@@ -419,7 +419,7 @@ async def test_pending_state_expires_instead_of_masking_forever(
     assert hass.states.get(entity_id).state == STATE_ON
 
 
-async def test_telnet_push_keeps_a_pending_audyssey_refresh(
+async def test_telnet_push_keeps_a_pending_settings_refresh(
     hass: HomeAssistant,
     client: MagicMock,
     entity_registry: er.EntityRegistry,
@@ -432,7 +432,7 @@ async def test_telnet_push_keeps_a_pending_audyssey_refresh(
     """
     await setup_denonavr(hass)
     entity_id = get_entity_id(entity_registry, SWITCH_DOMAIN, "dynamic_eq")
-    baseline_calls = client.async_update_audyssey.await_count
+    baseline_calls = client.async_update_settings.await_count
 
     await hass.services.async_call(
         SWITCH_DOMAIN,
@@ -443,4 +443,4 @@ async def test_telnet_push_keeps_a_pending_audyssey_refresh(
     fire_telnet_event("Main", "PS", "")
     await wait_for_debounced_refresh(hass)
 
-    assert client.async_update_audyssey.await_count == baseline_calls + 1
+    assert client.async_update_settings.await_count == baseline_calls + 1
