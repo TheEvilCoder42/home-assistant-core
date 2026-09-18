@@ -93,7 +93,7 @@ async def async_setup_entry(
         entities.append(
             DenonDevice(
                 data.coordinator,
-                data.audyssey_coordinator,
+                data.settings_coordinator,
                 receiver_zone,
                 unique_id,
                 config_entry,
@@ -156,14 +156,14 @@ class DenonDevice(CoordinatorEntity[DenonAvrDataUpdateCoordinator], MediaPlayerE
     def __init__(
         self,
         coordinator: DenonAvrDataUpdateCoordinator,
-        audyssey_coordinator: DenonAvrDataUpdateCoordinator,
+        settings_coordinator: DenonAvrDataUpdateCoordinator,
         receiver: DenonAVR,
         unique_id: str,
         config_entry: DenonavrConfigEntry,
     ) -> None:
         """Initialize the device."""
         super().__init__(coordinator)
-        self._audyssey_coordinator = audyssey_coordinator
+        self._settings_coordinator = settings_coordinator
         self._attr_unique_id = unique_id
         self._attr_device_info = DeviceInfo(
             configuration_url=f"http://{config_entry.data[CONF_HOST]}/",
@@ -206,12 +206,12 @@ class DenonDevice(CoordinatorEntity[DenonAvrDataUpdateCoordinator], MediaPlayerE
         """Register for coordinator updates and telnet events."""
         await super().async_added_to_hass()
         # super() only subscribes to self.coordinator (general status)
-        # - dynamic_eq is Audyssey-scoped, so this entity also needs
-        # the Audyssey coordinator's updates to keep it from going
-        # stale after a switch toggle, the update/set services, or a
-        # periodic Audyssey refresh.
+        # - dynamic_eq comes from AppCommand0300, so this entity also
+        # needs the settings coordinator's updates to keep it from
+        # going stale after a switch toggle, the update/set services,
+        # or a periodic settings refresh.
         self.async_on_remove(
-            self._audyssey_coordinator.async_add_listener(
+            self._settings_coordinator.async_add_listener(
                 self._handle_coordinator_update
             )
         )
@@ -433,12 +433,12 @@ class DenonDevice(CoordinatorEntity[DenonAvrDataUpdateCoordinator], MediaPlayerE
         # too would deadlock. Forced: this action needs a confirmed
         # fresh read even if Telnet already looks healthy, unlike a
         # regular scheduled poll.
-        await self._audyssey_coordinator.async_refresh_forced()
-        if not self._audyssey_coordinator.last_update_success:
+        await self._settings_coordinator.async_refresh_forced()
+        if not self._settings_coordinator.last_update_success:
             # A connectivity failure here means the receiver itself is
-            # unreachable, not just Audyssey-specific - this entity's
+            # unreachable, not just settings-specific - this entity's
             # own availability (tied to the general coordinator) needs
-            # to reflect that too, not just the Audyssey one.
+            # to reflect that too, not just the settings one.
             mark_unavailable(self.coordinator)
             raise HomeAssistantError(f"Error communicating with {self._receiver.host}")
 
@@ -454,13 +454,13 @@ class DenonDevice(CoordinatorEntity[DenonAvrDataUpdateCoordinator], MediaPlayerE
             # This command is Audyssey-scoped - a connectivity failure
             # here means that coordinator's data can't be trusted
             # either, not just the general one the decorator marks.
-            mark_unavailable(self._audyssey_coordinator)
+            mark_unavailable(self._settings_coordinator)
             raise
 
-        # Always refreshes Audyssey, regardless of "Update Audyssey
+        # Always refreshes the settings, regardless of "Update Audyssey
         # settings" - that option only governs the recurring poll, not
         # confirming an action that just changed Audyssey data. Safe
         # to call from inside the decorator's lock: async_request_refresh()
         # (immediate=False) only schedules and returns here, it
         # doesn't acquire the lock itself.
-        await self._audyssey_coordinator.async_request_refresh()
+        await self._settings_coordinator.async_request_refresh()

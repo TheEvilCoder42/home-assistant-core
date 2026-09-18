@@ -39,11 +39,11 @@ class DenonAvrSelectEntityDescription(SelectEntityDescription):
     # Offset requires Dynamic EQ to be on).
     available_fn: Callable[[DenonAVR], bool] = lambda receiver: True
     # Which coordinator drives this entity's polling and post-action
-    # confirmation. Audyssey values need their own coordinator since
-    # its recurring interval is conditional on "Update Audyssey
+    # confirmation. AppCommand0300 values need their own coordinator
+    # since its recurring interval is conditional on "Update Audyssey
     # settings" (see __init__.py); everything else shares the general
     # status coordinator, matching media_player.py's existing interval.
-    uses_audyssey_coordinator: bool = False
+    uses_settings_coordinator: bool = False
 
 
 SELECT_TYPES: tuple[DenonAvrSelectEntityDescription, ...] = (
@@ -58,7 +58,7 @@ SELECT_TYPES: tuple[DenonAvrSelectEntityDescription, ...] = (
             option
         ),
         available_fn=lambda receiver: bool(receiver.dynamic_eq),
-        uses_audyssey_coordinator=True,
+        uses_settings_coordinator=True,
     ),
     DenonAvrSelectEntityDescription(
         key="dynamic_volume",
@@ -68,7 +68,7 @@ SELECT_TYPES: tuple[DenonAvrSelectEntityDescription, ...] = (
         current_option_fn=lambda receiver: receiver.dynamic_volume,
         options_fn=lambda receiver: receiver.dynamic_volume_setting_list,
         select_option_fn=lambda receiver, option: receiver.async_set_dynamicvol(option),
-        uses_audyssey_coordinator=True,
+        uses_settings_coordinator=True,
     ),
     DenonAvrSelectEntityDescription(
         key="multi_eq",
@@ -78,7 +78,7 @@ SELECT_TYPES: tuple[DenonAvrSelectEntityDescription, ...] = (
         current_option_fn=lambda receiver: receiver.multi_eq,
         options_fn=lambda receiver: receiver.multi_eq_setting_list,
         select_option_fn=lambda receiver, option: receiver.async_set_multieq(option),
-        uses_audyssey_coordinator=True,
+        uses_settings_coordinator=True,
     ),
     DenonAvrSelectEntityDescription(
         key="eco_mode",
@@ -134,8 +134,8 @@ async def async_setup_entry(
         description: DenonAvrSelectEntityDescription,
     ) -> DenonAvrDataUpdateCoordinator:
         return (
-            data.audyssey_coordinator
-            if description.uses_audyssey_coordinator
+            data.settings_coordinator
+            if description.uses_settings_coordinator
             else data.coordinator
         )
 

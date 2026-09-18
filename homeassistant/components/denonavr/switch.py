@@ -48,7 +48,7 @@ async def async_setup_entry(
     async_add_entities(
         [
             DenonAvrDynamicEqSwitch(
-                data.audyssey_coordinator, unique_id_base, device_info
+                data.settings_coordinator, unique_id_base, device_info
             )
         ]
     )

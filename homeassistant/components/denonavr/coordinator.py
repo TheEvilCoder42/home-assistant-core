@@ -1,8 +1,8 @@
 """DataUpdateCoordinators for Denon AVR.
 
-Separate coordinators handle general status and Audyssey data: a
-single coordinator can't have one interval that's both always-on and
-opt-in, which "Update Audyssey settings" requires.
+Separate coordinators handle general status and the AppCommand0300
+settings: a single coordinator can't have one interval that's both
+always-on and opt-in, which "Update Audyssey settings" requires.
 """
 
 import asyncio
@@ -73,11 +73,14 @@ async def async_refresh_status(receiver: DenonAVR, *, force: bool = False) -> No
             )
 
 
-async def async_refresh_audyssey(receiver: DenonAVR, *, force: bool = False) -> None:
-    """Refresh Audyssey settings for every configured zone.
+async def async_refresh_settings(receiver: DenonAVR, *, force: bool = False) -> None:
+    """Refresh the AppCommand0300 settings for every configured zone.
 
-    Each zone is its own object with its own cached Audyssey state
-    (denonavr's async_update_audyssey() only updates the zone it's
+    That payload carries the Audyssey settings and the audio delay -
+    denonavr fetches both in a single request.
+
+    Each zone is its own object with its own cached copy of them
+    (denonavr's async_update_settings() only updates the zone it's
     called on), so Zone2/Zone3 media players need their own fetch too -
     matching receiver.py's Telnet-setup fetch and async_refresh_status's
     own per-zone loop.
@@ -85,7 +88,7 @@ async def async_refresh_audyssey(receiver: DenonAVR, *, force: bool = False) -> 
     Skips the HTTP poll if Telnet is already healthy and keeping
     everything current, for the same reason and in the same
     all-zones-at-once way as async_refresh_status's matching guard -
-    unless force=True: Telnet only pushes Audyssey data on a change,
+    unless force=True: Telnet only pushes these settings on a change,
     never on connect, so the one-time initial fetch needs to bypass
     this or these entities could start unavailable and stay that way
     indefinitely.
@@ -94,12 +97,12 @@ async def async_refresh_audyssey(receiver: DenonAVR, *, force: bool = False) -> 
         return
     for zone_receiver in receiver.zones.values():
         try:
-            await zone_receiver.async_update_audyssey()
+            await zone_receiver.async_update_settings()
         except UNAVAILABLE_ON:
             raise
         except DenonAvrError as err:
             _LOGGER.debug(
-                "Error refreshing Audyssey for zone %s for %s: %s",
+                "Error refreshing settings for zone %s for %s: %s",
                 zone_receiver.zone,
                 receiver.name,
                 err,
@@ -107,7 +110,7 @@ async def async_refresh_audyssey(receiver: DenonAVR, *, force: bool = False) -> 
 
 
 class _RefreshFn(Protocol):
-    """Callback signature shared by async_refresh_status/async_refresh_audyssey."""
+    """Callback signature shared by async_refresh_status/async_refresh_settings."""
 
     async def __call__(self, receiver: DenonAVR, *, force: bool = False) -> None: ...
 

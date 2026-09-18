@@ -209,7 +209,7 @@ async def test_general_failure_marks_audyssey_unavailable_even_while_polling(
     client.async_update.side_effect = AvrNetworkError("Connection refused", "GET")
     await entry.runtime_data.coordinator.async_refresh()
 
-    assert entry.runtime_data.audyssey_coordinator.last_update_success is False
+    assert entry.runtime_data.settings_coordinator.last_update_success is False
 
 
 async def test_dynamic_volume(hass: HomeAssistant, client: MagicMock) -> None:
@@ -426,7 +426,7 @@ async def test_reference_level_offset_always_refreshes_after_change(
     # (the coordinator refreshes once, before select/switch are even
     # forwarded), so both entities start with a real value instead of
     # "unavailable".
-    baseline_calls = client.async_update_audyssey.await_count
+    baseline_calls = client.async_update_settings.await_count
 
     await hass.services.async_call(
         SELECT_DOMAIN,
@@ -437,7 +437,7 @@ async def test_reference_level_offset_always_refreshes_after_change(
     await _wait_for_debounced_refresh(hass)
     # Just one call, since this is the only entity acting - HA's own
     # post-service-call poll doesn't apply here (should_poll=False).
-    assert client.async_update_audyssey.await_count == baseline_calls + 1
+    assert client.async_update_settings.await_count == baseline_calls + 1
 
 
 async def test_coordinators_serialize_command_and_refresh(
@@ -470,7 +470,7 @@ async def test_coordinators_serialize_command_and_refresh(
         call_order.append("end-audyssey")
 
     client.async_dimmer.side_effect = _slow_dimmer_set
-    client.async_update_audyssey.side_effect = _slow_audyssey_update
+    client.async_update_settings.side_effect = _slow_audyssey_update
 
     await asyncio.gather(
         hass.services.async_call(
@@ -479,7 +479,7 @@ async def test_coordinators_serialize_command_and_refresh(
             {ATTR_ENTITY_ID: entity_id, ATTR_OPTION: "Dark"},
             blocking=True,
         ),
-        entry.runtime_data.audyssey_coordinator.async_refresh(),
+        entry.runtime_data.settings_coordinator.async_refresh(),
     )
 
     assert call_order in (
@@ -488,10 +488,10 @@ async def test_coordinators_serialize_command_and_refresh(
     )
 
 
-async def test_audyssey_coordinator_polls_when_option_on(
+async def test_settings_coordinator_polls_when_option_on(
     hass: HomeAssistant, client: MagicMock, freezer: FrozenDateTimeFactory
 ) -> None:
-    """The Audyssey coordinator actually polls on a schedule when the option is on.
+    """The settings coordinator actually polls on a schedule when the option is on.
 
     Exercises the real behavior (a call once the interval elapses)
     rather than just asserting update_interval was set, which would
@@ -499,19 +499,19 @@ async def test_audyssey_coordinator_polls_when_option_on(
     were broken.
     """
     await setup_denonavr(hass, options={CONF_UPDATE_AUDYSSEY: True})
-    calls_before = client.async_update_audyssey.await_count
+    calls_before = client.async_update_settings.await_count
 
     freezer.tick(timedelta(seconds=COORDINATOR_UPDATE_INTERVAL + 1))
     async_fire_time_changed(hass)
     await hass.async_block_till_done()
 
-    assert client.async_update_audyssey.await_count > calls_before
+    assert client.async_update_settings.await_count > calls_before
 
 
-async def test_audyssey_coordinator_skips_poll_when_telnet_healthy(
+async def test_settings_coordinator_skips_poll_when_telnet_healthy(
     hass: HomeAssistant, client: MagicMock, freezer: FrozenDateTimeFactory
 ) -> None:
-    """A scheduled Audyssey poll is skipped once Telnet already keeps it current.
+    """A scheduled settings poll is skipped once Telnet already keeps it current.
 
     Mirrors async_refresh_status's own guard for the general
     coordinator - Telnet already pushes these settings live (see
@@ -521,16 +521,16 @@ async def test_audyssey_coordinator_skips_poll_when_telnet_healthy(
     await setup_denonavr(hass, options={CONF_UPDATE_AUDYSSEY: True})
     client.telnet_connected = True
     client.telnet_healthy = True
-    calls_before = client.async_update_audyssey.await_count
+    calls_before = client.async_update_settings.await_count
 
     freezer.tick(timedelta(seconds=COORDINATOR_UPDATE_INTERVAL + 1))
     async_fire_time_changed(hass)
     await hass.async_block_till_done()
 
-    assert client.async_update_audyssey.await_count == calls_before
+    assert client.async_update_settings.await_count == calls_before
 
 
-async def test_audyssey_coordinator_does_not_poll_when_option_off(
+async def test_settings_coordinator_does_not_poll_when_option_off(
     hass: HomeAssistant, client: MagicMock, freezer: FrozenDateTimeFactory
 ) -> None:
     """Confirms it doesn't silently query the receiver on a schedule anyway.
@@ -539,21 +539,21 @@ async def test_audyssey_coordinator_does_not_poll_when_option_off(
     action), just not automatically.
     """
     await setup_denonavr(hass, options={CONF_UPDATE_AUDYSSEY: False})
-    calls_before = client.async_update_audyssey.await_count
+    calls_before = client.async_update_settings.await_count
 
     freezer.tick(timedelta(seconds=COORDINATOR_UPDATE_INTERVAL + 1))
     async_fire_time_changed(hass)
     await hass.async_block_till_done()
 
-    assert client.async_update_audyssey.await_count == calls_before
+    assert client.async_update_settings.await_count == calls_before
 
 
 async def test_setup_skips_redundant_audyssey_refresh_with_telnet(
     hass: HomeAssistant, client: MagicMock
 ) -> None:
-    """Setup doesn't double-fetch Audyssey when Telnet already did.
+    """Setup doesn't double-fetch the settings when Telnet already did.
 
-    receiver.py's connection step already calls async_update_audyssey()
+    receiver.py's connection step already calls async_update_settings()
     for every zone when both Telnet and "Update Audyssey settings" are
     on - the coordinator's own initial refresh must not repeat that
     ~10s request on every setup or reload.
@@ -562,16 +562,16 @@ async def test_setup_skips_redundant_audyssey_refresh_with_telnet(
         hass, options={CONF_USE_TELNET: True, CONF_UPDATE_AUDYSSEY: True}
     )
 
-    assert client.async_update_audyssey.await_count == 1
+    assert client.async_update_settings.await_count == 1
 
 
 async def test_setup_forces_audyssey_fetch_with_telnet_but_no_polling(
     hass: HomeAssistant, client: MagicMock
 ) -> None:
-    """Setup still fetches Audyssey once when Telnet is on but polling is off.
+    """Setup still fetches the settings once when Telnet is on but polling is off.
 
-    Telnet only pushes Audyssey data on a change, never on connect, so
-    without forcing this fetch, async_refresh_audyssey's own Telnet-
+    Telnet only pushes these settings on a change, never on connect, so
+    without forcing this fetch, async_refresh_settings's own Telnet-
     healthy skip would leave these entities unavailable indefinitely -
     receiver.py didn't fetch it either, since that's gated on the
     polling option, not on Telnet being enabled.
@@ -585,13 +585,13 @@ async def test_setup_forces_audyssey_fetch_with_telnet_but_no_polling(
         client.dynamic_eq = True
         client.reference_level_offset = "0dB"
 
-    client.async_update_audyssey.side_effect = _populate
+    client.async_update_settings.side_effect = _populate
 
     await setup_denonavr(
         hass, options={CONF_USE_TELNET: True, CONF_UPDATE_AUDYSSEY: False}
     )
 
-    assert client.async_update_audyssey.await_count == 1
+    assert client.async_update_settings.await_count == 1
     entity_id = _entity_id(hass, "reference_level_offset")
     assert hass.states.get(entity_id).state != STATE_UNAVAILABLE
 
@@ -746,7 +746,7 @@ async def test_audyssey_entities_not_unavailable_on_fresh_setup(
     client.dynamic_volume = None
     client.multi_eq = None
 
-    # Simulate what a real async_update_audyssey() call does: populate
+    # Simulate what a real async_update_settings() call does: populate
     # the values, as if the device had just been queried.
     async def _populate_audyssey(*args, **kwargs):
         client.dynamic_eq = True
@@ -754,7 +754,7 @@ async def test_audyssey_entities_not_unavailable_on_fresh_setup(
         client.dynamic_volume = "Off"
         client.multi_eq = "Reference"
 
-    client.async_update_audyssey.side_effect = _populate_audyssey
+    client.async_update_settings.side_effect = _populate_audyssey
 
     # Option left at its documented default (off).
     await setup_denonavr(hass, options={CONF_UPDATE_AUDYSSEY: False})

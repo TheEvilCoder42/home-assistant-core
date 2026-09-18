@@ -267,7 +267,7 @@ async def test_turn_on_always_refreshes_audyssey_after_change(
     entity_id = _entity_id(hass, SWITCH_DOMAIN, "dynamic_eq")
 
     # Setup already does one initial Audyssey fetch.
-    baseline_calls = client.async_update_audyssey.await_count
+    baseline_calls = client.async_update_settings.await_count
 
     await hass.services.async_call(
         SWITCH_DOMAIN,
@@ -279,7 +279,7 @@ async def test_turn_on_always_refreshes_audyssey_after_change(
 
     # Just one call, since this is the only entity acting - HA's own
     # post-service-call poll doesn't apply here (should_poll=False).
-    assert client.async_update_audyssey.await_count == baseline_calls + 1
+    assert client.async_update_settings.await_count == baseline_calls + 1
 
 
 async def test_rapid_toggles_do_not_race(
@@ -336,7 +336,7 @@ async def test_state_shown_immediately_even_if_refresh_reads_back_stale_value(
     """A stale immediate refresh must not revert a just-set state."""
     # Simulate the receiver's Audyssey refresh responding with the old
     # value, as if the command hadn't internally settled yet.
-    client.async_update_audyssey.side_effect = lambda *a, **k: None  # stays True
+    client.async_update_settings.side_effect = lambda *a, **k: None  # stays True
 
     await setup_denonavr(hass)
     entity_id = _entity_id(hass, SWITCH_DOMAIN, "dynamic_eq")
@@ -359,7 +359,7 @@ async def test_pending_state_expires_instead_of_masking_forever(
     hass: HomeAssistant, client: MagicMock
 ) -> None:
     """A pending state must expire rather than mask reality forever."""
-    client.async_update_audyssey.side_effect = lambda *a, **k: None  # stays True
+    client.async_update_settings.side_effect = lambda *a, **k: None  # stays True
 
     with patch("homeassistant.components.denonavr.entity.PENDING_VALUE_TIMEOUT", 0.01):
         await setup_denonavr(hass)

@@ -40,10 +40,11 @@ ECO_MODE_OPTIONS = ("On", "Auto", "Off")
 DIMMER_OPTIONS = ("Off", "Dark", "Dim", "Bright")
 AUTO_STANDBY_OPTIONS = ("OFF", "15M", "30M", "60M", "2H", "4H", "8H")
 
-# Telnet event group carrying all Audyssey settings (DYNEQ, MULTEQ,
-# REFLEV, DYNVOL) - used by __init__.py to notify the Audyssey
-# coordinator independently of whether the media_player entity is enabled.
-AUDYSSEY_TELNET_EVENT = "PS"
+# Telnet event group carrying the Audyssey settings (DYNEQ, MULTEQ,
+# REFLEV, DYNVOL) and the audio delay (DELAY) - used by __init__.py to
+# notify the settings coordinator independently of whether the
+# media_player entity is enabled.
+SETTINGS_TELNET_EVENT = "PS"
 
 # Telnet events relevant to media_player.py's own state.
 TELNET_EVENTS = {

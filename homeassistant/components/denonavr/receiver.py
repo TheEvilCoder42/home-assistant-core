@@ -97,7 +97,7 @@ class ConnectDenonAVR:
                 with contextlib.suppress(AvrProcessingError):
                     await zone.async_update()
                 if self._update_audyssey:
-                    await zone.async_update_audyssey()
+                    await zone.async_update_settings()
             await receiver.async_telnet_connect()
 
         self._receiver = receiver

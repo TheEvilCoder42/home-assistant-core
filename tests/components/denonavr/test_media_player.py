@@ -209,7 +209,7 @@ async def test_telnet_callback_filters_and_writes_state(
         mock_write.assert_called_once()
 
 
-async def test_dynamic_eq_attribute_updates_from_audyssey_coordinator(
+async def test_dynamic_eq_attribute_updates_from_settings_coordinator(
     hass: HomeAssistant, client: MagicMock
 ) -> None:
     """The dynamic_eq attribute refreshes when the Audyssey coordinator does.
@@ -224,12 +224,12 @@ async def test_dynamic_eq_attribute_updates_from_audyssey_coordinator(
     entry = await setup_denonavr(hass)
     client.power = POWER_ON
     client.dynamic_eq = True
-    entry.runtime_data.audyssey_coordinator.async_update_listeners()
+    entry.runtime_data.settings_coordinator.async_update_listeners()
     await hass.async_block_till_done()
     assert hass.states.get(ENTITY_ID).attributes[ATTR_DYNAMIC_EQ] is True
 
     client.dynamic_eq = False
-    entry.runtime_data.audyssey_coordinator.async_update_listeners()
+    entry.runtime_data.settings_coordinator.async_update_listeners()
     await hass.async_block_till_done()
     assert hass.states.get(ENTITY_ID).attributes[ATTR_DYNAMIC_EQ] is False
 
@@ -495,7 +495,7 @@ async def test_update_audyssey(hass: HomeAssistant, client: MagicMock) -> None:
     # has already been called by the time the service below runs -
     # assert the service adds exactly one more call, rather than a
     # fixed total.
-    calls_before_service = client.async_update_audyssey.call_count
+    calls_before_service = client.async_update_settings.call_count
 
     # Verify call
     await hass.services.async_call(
@@ -507,7 +507,7 @@ async def test_update_audyssey(hass: HomeAssistant, client: MagicMock) -> None:
     )
     await hass.async_block_till_done()
 
-    assert client.async_update_audyssey.call_count == calls_before_service + 1
+    assert client.async_update_settings.call_count == calls_before_service + 1
 
 
 async def test_update_audyssey_forces_fetch_with_healthy_telnet(
@@ -524,7 +524,7 @@ async def test_update_audyssey_forces_fetch_with_healthy_telnet(
     client.telnet_healthy = True
     await setup_denonavr(hass, options={"use_telnet": True})
 
-    calls_before_service = client.async_update_audyssey.call_count
+    calls_before_service = client.async_update_settings.call_count
 
     await hass.services.async_call(
         DOMAIN,
@@ -533,7 +533,7 @@ async def test_update_audyssey_forces_fetch_with_healthy_telnet(
     )
     await hass.async_block_till_done()
 
-    assert client.async_update_audyssey.call_count == calls_before_service + 1
+    assert client.async_update_settings.call_count == calls_before_service + 1
 
 
 async def test_concurrent_forced_refreshes_each_bypass_telnet_skip(
@@ -554,7 +554,7 @@ async def test_concurrent_forced_refreshes_each_bypass_telnet_skip(
     client.telnet_connected = True
     client.telnet_healthy = True
     entry = await setup_denonavr(hass, options={"use_telnet": True})
-    audyssey_coordinator = entry.runtime_data.audyssey_coordinator
+    settings_coordinator = entry.runtime_data.settings_coordinator
 
     async def _suspending_update() -> None:
         # Yields control so the second caller reaches the coordinator
@@ -562,32 +562,32 @@ async def test_concurrent_forced_refreshes_each_bypass_telnet_skip(
         # never suspends and the two calls can't interleave at all.
         await asyncio.sleep(0)
 
-    client.async_update_audyssey.side_effect = _suspending_update
-    calls_before = client.async_update_audyssey.call_count
+    client.async_update_settings.side_effect = _suspending_update
+    calls_before = client.async_update_settings.call_count
 
     await asyncio.gather(
-        audyssey_coordinator.async_refresh_forced(),
-        audyssey_coordinator.async_refresh_forced(),
+        settings_coordinator.async_refresh_forced(),
+        settings_coordinator.async_refresh_forced(),
     )
 
-    assert client.async_update_audyssey.call_count == calls_before + 2
+    assert client.async_update_settings.call_count == calls_before + 2
 
 
-async def test_initial_audyssey_failure_marks_status_unavailable(
+async def test_initial_settings_failure_marks_status_unavailable(
     hass: HomeAssistant, client: MagicMock
 ) -> None:
-    """A connectivity failure on the setup-time Audyssey fetch reaches both.
+    """A connectivity failure on the setup-time settings fetch reaches both.
 
     The failure listener is registered before that first refresh, so
     the status coordinator learns about it immediately rather than
     keeping media_player and the general selects available until its
     own next poll.
     """
-    client.async_update_audyssey.side_effect = AvrNetworkError("Network error", "test")
+    client.async_update_settings.side_effect = AvrNetworkError("Network error", "test")
 
     entry = await setup_denonavr(hass)
 
-    assert entry.runtime_data.audyssey_coordinator.last_update_success is False
+    assert entry.runtime_data.settings_coordinator.last_update_success is False
     assert entry.runtime_data.coordinator.last_update_success is False
 
 
@@ -603,7 +603,7 @@ async def test_update_audyssey_restores_availability(
     this succeeds.
     """
     entry = await setup_denonavr(hass)
-    entry.runtime_data.audyssey_coordinator.last_update_success = False
+    entry.runtime_data.settings_coordinator.last_update_success = False
 
     await hass.services.async_call(
         DOMAIN,
@@ -612,7 +612,7 @@ async def test_update_audyssey_restores_availability(
     )
     await hass.async_block_till_done()
 
-    assert entry.runtime_data.audyssey_coordinator.last_update_success is True
+    assert entry.runtime_data.settings_coordinator.last_update_success is True
 
 
 async def test_update_audyssey_connectivity_error_marks_media_player_unavailable(
@@ -627,7 +627,7 @@ async def test_update_audyssey_connectivity_error_marks_media_player_unavailable
     receiver itself is unreachable.
     """
     entry = await setup_denonavr(hass)
-    client.async_update_audyssey.side_effect = AvrNetworkError(
+    client.async_update_settings.side_effect = AvrNetworkError(
         "Connection refused", "GetAudyssey"
     )
 
@@ -687,7 +687,7 @@ async def test_set_dynamic_eq_connectivity_error_marks_audyssey_unavailable(
             blocking=True,
         )
 
-    assert entry.runtime_data.audyssey_coordinator.last_update_success is False
+    assert entry.runtime_data.settings_coordinator.last_update_success is False
 
 
 async def test_set_dynamic_eq_always_refreshes_audyssey(
@@ -704,7 +704,7 @@ async def test_set_dynamic_eq_always_refreshes_audyssey(
         0,
     ):
         await setup_denonavr(hass, options={"update_audyssey": False})
-        calls_before = client.async_update_audyssey.await_count
+        calls_before = client.async_update_settings.await_count
 
         await hass.services.async_call(
             DOMAIN,
@@ -714,7 +714,7 @@ async def test_set_dynamic_eq_always_refreshes_audyssey(
         await asyncio.sleep(0)
         await hass.async_block_till_done()
 
-    assert client.async_update_audyssey.await_count > calls_before
+    assert client.async_update_settings.await_count > calls_before
 
 
 async def test_setup_retry_on_request_error(
