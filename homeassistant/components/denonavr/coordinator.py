@@ -85,6 +85,11 @@ async def async_refresh_settings(receiver: DenonAVR, *, force: bool = False) -> 
     matching receiver.py's Telnet-setup fetch and async_refresh_status's
     own per-zone loop.
 
+    The speaker preset rides the same request but has its own entry
+    point, which async_update_settings() doesn't call; it's
+    receiver-wide rather than per zone, so it's fetched once outside
+    the loop.
+
     Skips the HTTP poll if Telnet is already healthy and keeping
     everything current, for the same reason and in the same
     all-zones-at-once way as async_refresh_status's matching guard -
@@ -107,6 +112,14 @@ async def async_refresh_settings(receiver: DenonAVR, *, force: bool = False) -> 
                 receiver.name,
                 err,
             )
+    try:
+        await receiver.async_update_speaker_preset()
+    except UNAVAILABLE_ON:
+        raise
+    except DenonAvrError as err:
+        _LOGGER.debug(
+            "Error refreshing the speaker preset for %s: %s", receiver.name, err
+        )
 
 
 class _RefreshFn(Protocol):

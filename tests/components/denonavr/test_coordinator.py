@@ -14,9 +14,11 @@ def _receiver_with_zones() -> tuple[MagicMock, MagicMock]:
     main.telnet_connected = False
     main.telnet_healthy = False
     main.async_update_settings = AsyncMock()
+    main.async_update_speaker_preset = AsyncMock()
     zone2 = MagicMock()
     zone2.zone = "Zone2"
     zone2.async_update_settings = AsyncMock()
+    zone2.async_update_speaker_preset = AsyncMock()
     main.zones = {"Main": main, "Zone2": zone2}
     return main, zone2
 
@@ -80,3 +82,55 @@ async def test_async_refresh_settings_continues_after_one_zones_command_error() 
     await async_refresh_settings(main)
 
     zone2.async_update_settings.assert_awaited_once()
+
+
+async def test_async_refresh_settings_fetches_the_speaker_preset_once() -> None:
+    """The speaker preset is receiver-wide, so it's fetched outside the zone loop.
+
+    It also has its own entry point, which async_update_settings()
+    doesn't call - without this the backing select would read unknown
+    forever.
+    """
+    main, zone2 = _receiver_with_zones()
+
+    await async_refresh_settings(main)
+
+    main.async_update_speaker_preset.assert_awaited_once()
+    zone2.async_update_speaker_preset.assert_not_awaited()
+
+
+async def test_async_refresh_settings_skips_the_speaker_preset_when_telnet_healthy() -> (
+    None
+):
+    """The Telnet-healthy skip covers the speaker preset too."""
+    main, _ = _receiver_with_zones()
+    main.telnet_connected = True
+    main.telnet_healthy = True
+
+    await async_refresh_settings(main)
+
+    main.async_update_speaker_preset.assert_not_awaited()
+
+
+async def test_async_refresh_settings_continues_after_a_speaker_preset_error() -> None:
+    """A receiver without the speaker preset command doesn't fail the refresh."""
+    main, zone2 = _receiver_with_zones()
+    main.async_update_speaker_preset = AsyncMock(
+        side_effect=AvrCommandError("not supported", "GetSpeakerPreset")
+    )
+
+    await async_refresh_settings(main)
+
+    zone2.async_update_settings.assert_awaited_once()
+
+
+async def test_async_refresh_settings_fetches_the_preset_after_a_zone_error() -> None:
+    """One zone's failure doesn't stop the receiver-wide preset fetch."""
+    main, _ = _receiver_with_zones()
+    main.async_update_settings = AsyncMock(
+        side_effect=AvrCommandError("not supported", "GetAudyssey")
+    )
+
+    await async_refresh_settings(main)
+
+    main.async_update_speaker_preset.assert_awaited_once()

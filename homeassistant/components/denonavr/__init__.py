@@ -3,6 +3,7 @@
 import asyncio
 from dataclasses import dataclass
 from datetime import timedelta
+from functools import partial
 import logging
 
 from denonavr import DenonAVR
@@ -30,7 +31,7 @@ from .const import (
     DEFAULT_ZONE2,
     DEFAULT_ZONE3,
     DOMAIN,
-    SETTINGS_TELNET_EVENT,
+    SETTINGS_TELNET_EVENTS,
 )
 from .coordinator import (
     DenonAvrDataUpdateCoordinator,
@@ -204,12 +205,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: DenonavrConfigEntry) -> 
         """
         settings_coordinator.async_update_listeners()
 
-    receiver.register_callback(SETTINGS_TELNET_EVENT, _telnet_notify_settings)
-    entry.async_on_unload(
-        lambda: receiver.unregister_callback(
-            SETTINGS_TELNET_EVENT, _telnet_notify_settings
+    for telnet_event in SETTINGS_TELNET_EVENTS:
+        receiver.register_callback(telnet_event, _telnet_notify_settings)
+        entry.async_on_unload(
+            partial(receiver.unregister_callback, telnet_event, _telnet_notify_settings)
         )
-    )
 
     entry.runtime_data = DenonAvrData(
         receiver=receiver,

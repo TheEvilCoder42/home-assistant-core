@@ -11,7 +11,11 @@ from homeassistant.components.denonavr.config_flow import (
     CONF_TYPE,
     DOMAIN,
 )
-from homeassistant.components.denonavr.const import CONF_ZONE2, CONF_ZONE3
+from homeassistant.components.denonavr.const import (
+    CONF_ZONE2,
+    CONF_ZONE3,
+    SETTINGS_TELNET_EVENTS,
+)
 from homeassistant.config_entries import ConfigEntryState
 from homeassistant.const import CONF_HOST, CONF_MODEL, EVENT_HOMEASSISTANT_STOP
 from homeassistant.core import HomeAssistant
@@ -163,3 +167,31 @@ async def test_unload_removes_disabled_zone_entity(
     await hass.async_block_till_done()
 
     assert entity_registry.async_get(stray_entity_id) is None
+
+
+async def test_every_settings_telnet_event_notifies_the_coordinator(
+    hass: HomeAssistant, client: MagicMock
+) -> None:
+    """The settings coordinator is notified for each event group it owns.
+
+    The Audyssey values and the speaker preset arrive as different
+    Telnet events, so registering only one of them leaves the other's
+    entities stale after a front-panel change.
+    """
+    entry = _create_entry(options={"use_telnet": True})
+    entry.add_to_hass(hass)
+    await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+
+    registered = {
+        call.args[0]
+        for call in client.register_callback.call_args_list
+        if not hasattr(call.args[1], "__self__")
+    }
+    assert registered == set(SETTINGS_TELNET_EVENTS)
+
+    await hass.config_entries.async_unload(entry.entry_id)
+    await hass.async_block_till_done()
+
+    unregistered = {call.args[0] for call in client.unregister_callback.call_args_list}
+    assert set(SETTINGS_TELNET_EVENTS) <= unregistered
