@@ -33,7 +33,7 @@ ACTION_REFRESH_DEBOUNCE_COOLDOWN = 0.5
 # everything a change moved had settled within ~4.3 s of the command.
 SETTLED_REFRESH_DELAY = 5
 
-# The event group the Audyssey settings and the audio delay arrive in.
-# __init__.py notifies the settings coordinator on it, whether or not
-# media_player is enabled.
-SETTINGS_TELNET_EVENT = "PS"
+# The event groups the settings coordinator's own settings arrive in: "PS"
+# for the Audyssey values and the audio delay, "SP" for the speaker preset.
+# __init__.py notifies it on them, whether or not media_player is enabled.
+SETTINGS_TELNET_EVENTS = ("PS", "SP")

@@ -109,6 +109,11 @@ async def async_refresh_settings(receiver: DenonAVR, *, force: bool = False) -> 
     point, which async_update_settings() does not call. Receiver-wide, so they
     are read once, after the loop: the cache answers them only from a request
     that has already completed, not from one still in flight.
+
+    The speaker preset is receiver-wide and has its own entry point, which
+    async_update_settings() does not call. It reads the loop's answer through
+    the same cache id, so it runs after the loop: the cache does not share a
+    request still in flight.
     """
     if not force and receiver.telnet_connected and receiver.telnet_healthy:
         return
@@ -134,6 +139,16 @@ async def async_refresh_settings(receiver: DenonAVR, *, force: bool = False) -> 
     except DenonAvrError as err:
         _LOGGER.debug(
             "Error refreshing the surround parameters for %s: %s", receiver.name, err
+        )
+    try:
+        await receiver.async_update_speaker_preset(
+            global_update=True, cache_id=cache_id
+        )
+    except UNAVAILABLE_ON:
+        raise
+    except DenonAvrError as err:
+        _LOGGER.debug(
+            "Error refreshing the speaker preset for %s: %s", receiver.name, err
         )
 
 
