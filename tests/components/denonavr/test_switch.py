@@ -25,6 +25,7 @@ from homeassistant.const import (
     STATE_OFF,
     STATE_ON,
     STATE_UNAVAILABLE,
+    STATE_UNKNOWN,
     Platform,
 )
 from homeassistant.core import HomeAssistant
@@ -643,3 +644,101 @@ async def test_telnet_push_clears_a_failure_only_without_a_poll(
     await hass.async_block_till_done()
 
     assert hass.states.get(entity_id).state == expected_state
+
+
+@pytest.mark.parametrize(
+    ("tone_control_adjust", "tone_control_status", "expected"),
+    [
+        pytest.param(True, False, STATE_ON, id="on_while_status_disagrees"),
+        pytest.param(False, True, STATE_OFF, id="off_while_status_disagrees"),
+    ],
+)
+async def test_tone_control_reflects_adjust_not_status(
+    hass: HomeAssistant,
+    client: MagicMock,
+    entity_registry: er.EntityRegistry,
+    tone_control_adjust: bool,
+    tone_control_status: bool,
+    expected: str,
+) -> None:
+    """The switch tracks tone_control_adjust, which is the field that follows the toggle."""
+    client.dynamic_eq = False
+    client.tone_control_adjust = tone_control_adjust
+    client.tone_control_status = tone_control_status
+    await setup_denonavr(hass)
+
+    entity_id = get_entity_id(entity_registry, SWITCH_DOMAIN, "tone_control")
+    assert hass.states.get(entity_id).state == expected
+
+
+@pytest.mark.parametrize(
+    ("service", "method", "on", "later_state"),
+    [
+        pytest.param(
+            SERVICE_TURN_ON, "async_enable_tone_control", True, STATE_OFF, id="turn_on"
+        ),
+        pytest.param(
+            SERVICE_TURN_OFF,
+            "async_disable_tone_control",
+            False,
+            STATE_ON,
+            id="turn_off",
+        ),
+    ],
+)
+async def test_toggle_tone_control(
+    hass: HomeAssistant,
+    client: MagicMock,
+    entity_registry: er.EntityRegistry,
+    service: str,
+    method: str,
+    on: bool,
+    later_state: str,
+) -> None:
+    """Toggling the switch enables or disables tone control on the receiver.
+
+    The state shows the new setting until the receiver reports it back,
+    which releases it to follow the receiver again.
+    """
+    client.dynamic_eq = False
+    client.tone_control_adjust = not on
+    entry = await setup_denonavr(hass)
+    entity_id = get_entity_id(entity_registry, SWITCH_DOMAIN, "tone_control")
+
+    await hass.services.async_call(
+        SWITCH_DOMAIN,
+        service,
+        {ATTR_ENTITY_ID: entity_id},
+        blocking=True,
+    )
+
+    getattr(client, method).assert_awaited_once()
+
+    client.tone_control_adjust = on
+    await entry.runtime_data.coordinator.async_refresh()
+    client.tone_control_adjust = not on
+    await entry.runtime_data.coordinator.async_refresh()
+    assert hass.states.get(entity_id).state == later_state
+
+
+async def test_tone_control_settable_while_unknown(
+    hass: HomeAssistant,
+    client: MagicMock,
+    entity_registry: er.EntityRegistry,
+) -> None:
+    """A dormant tone control block blanks the toggle, but writes still apply."""
+    client.dynamic_eq = False
+    client.tone_control_adjust = None
+    await setup_denonavr(hass)
+    entity_id = get_entity_id(entity_registry, SWITCH_DOMAIN, "tone_control")
+
+    assert hass.states.get(entity_id).state == STATE_UNKNOWN
+
+    await hass.services.async_call(
+        SWITCH_DOMAIN,
+        SERVICE_TURN_OFF,
+        {ATTR_ENTITY_ID: entity_id},
+        blocking=True,
+    )
+
+    client.async_disable_tone_control.assert_awaited_once()

@@ -12,7 +12,11 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
 from . import DenonavrConfigEntry
-from .entity import DenonAvrPendingValueEntity, audyssey_available
+from .entity import (
+    DenonAvrPendingValueEntity,
+    audyssey_available,
+    tone_control_available,
+)
 
 # Denon receivers do not handle concurrent requests reliably. Only
 # covers multi-entity calls - entity.py's shared lock covers the rest.
@@ -33,6 +37,10 @@ class DenonAvrSwitchEntityDescription(SwitchEntityDescription):
     # For a setting whose available_fn reads a value the other coordinator
     # holds: only that one's refresh or Telnet push reports it changing.
     follows_other_coordinator: bool = False
+    # Whether the setting can be written before the receiver has reported it.
+    settable_while_unknown: bool = False
+    # Whether the receiver has this setting at all; checked once at setup.
+    supported_fn: Callable[[DenonAVR], bool] = lambda receiver: True
 
 
 SWITCH_TYPES: tuple[DenonAvrSwitchEntityDescription, ...] = (
@@ -52,6 +60,23 @@ SWITCH_TYPES: tuple[DenonAvrSwitchEntityDescription, ...] = (
         uses_audyssey_coordinator=True,
         follows_other_coordinator=True,
     ),
+    DenonAvrSwitchEntityDescription(
+        key="tone_control",
+        translation_key="tone_control",
+        entity_category=EntityCategory.CONFIG,
+        # Not tone_control_status: the reference receiver reports both of its
+        # polarities wrongly, while adjust tracks the toggle faithfully.
+        is_on_fn=lambda receiver: receiver.tone_control_adjust,
+        set_fn=lambda receiver, on: (
+            receiver.async_enable_tone_control()
+            if on
+            else receiver.async_disable_tone_control()
+        ),
+        available_fn=tone_control_available,
+        follows_other_coordinator=True,
+        settable_while_unknown=True,
+        supported_fn=lambda receiver: bool(receiver.support_tone_control),
+    ),
 )
 
 
@@ -61,8 +86,11 @@ async def async_setup_entry(
     async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Set up the DenonAVR switch entities from a config entry."""
+    receiver = config_entry.runtime_data.receiver
     async_add_entities(
-        DenonAvrSwitch(config_entry, description) for description in SWITCH_TYPES
+        DenonAvrSwitch(config_entry, description)
+        for description in SWITCH_TYPES
+        if description.supported_fn(receiver)
     )
 
 
@@ -108,7 +136,10 @@ class DenonAvrSwitch(DenonAvrPendingValueEntity[bool], SwitchEntity):
         """
         return (
             super().available
-            and self._current_value is not None
+            and (
+                self.entity_description.settable_while_unknown
+                or self._current_value is not None
+            )
             and self.entity_description.available_fn(self._receiver)
         )
 

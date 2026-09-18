@@ -1,6 +1,13 @@
 {
   "entity": {
-    "number": {},
+    "number": {
+      "bass": {
+        "default": "mdi:music-clef-bass"
+      },
+      "treble": {
+        "default": "mdi:music-clef-treble"
+      }
+    },
     "select": {
       "auto_standby": {
         "default": "mdi:timer-outline"
@@ -24,6 +31,9 @@
     "switch": {
       "dynamic_eq": {
         "default": "mdi:auto-fix"
+      },
+      "tone_control": {
+        "default": "mdi:tune-vertical-variant"
       }
     }
   },
