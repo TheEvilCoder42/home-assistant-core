@@ -109,13 +109,13 @@ async def test_dynamic_eq_follows_direct_through_a_status_refresh(
     """Dynamic EQ is unavailable in Direct, seen by a status refresh alone.
 
     Direct bypasses Audyssey and the receiver drops the command there. The
-    sound mode is a status value and the Audyssey coordinator does not
+    sound mode is a status value and the settings coordinator does not
     refresh here, so the switch has to follow the status coordinator too.
     """
     entry = await setup_denonavr(hass)
     entity_id = get_entity_id(entity_registry, SWITCH_DOMAIN, "dynamic_eq")
     assert hass.states.get(entity_id).state == STATE_ON
-    audyssey_reads = client.async_update_audyssey.await_count
+    settings_reads = client.async_update_settings.await_count
 
     client.sound_mode = sound_mode
     await entry.runtime_data.coordinator.async_refresh()
@@ -126,7 +126,7 @@ async def test_dynamic_eq_follows_direct_through_a_status_refresh(
     await entry.runtime_data.coordinator.async_refresh()
     await hass.async_block_till_done()
     assert hass.states.get(entity_id).state == STATE_ON
-    assert client.async_update_audyssey.await_count == audyssey_reads
+    assert client.async_update_settings.await_count == settings_reads
 
 
 @pytest.mark.parametrize(
@@ -244,7 +244,7 @@ async def test_turn_on_raises_on_avr_error(
 
     A rejected command says nothing about whether the receiver is reachable.
     A connectivity failure does. It marks the status coordinator, and with
-    Telnet down and no Audyssey poll of its own the Audyssey one follows.
+    Telnet down and no settings poll of its own the settings one follows.
     """
     entry = await setup_denonavr(hass)
     entity_id = get_entity_id(entity_registry, SWITCH_DOMAIN, "dynamic_eq")
@@ -267,7 +267,7 @@ async def test_turn_on_raises_on_avr_error(
         == f"Setting {entity_id} to on failed on {TEST_HOST}: {error_message}"
     )
     assert entry.runtime_data.coordinator.last_update_success is available
-    assert entry.runtime_data.audyssey_coordinator.last_update_success is available
+    assert entry.runtime_data.settings_coordinator.last_update_success is available
 
 
 @pytest.mark.parametrize(
@@ -285,9 +285,9 @@ async def test_unreachable_receiver_marks_the_status_coordinator(
     telnet_healthy: bool,
     state_after_failure: str,
 ) -> None:
-    """A command's connectivity failure reaches Audyssey only through status.
+    """A command's connectivity failure reaches settings only through status.
 
-    With Telnet healthy and no Audyssey poll, nothing but an Audyssey push
+    With Telnet healthy and no settings poll, nothing but a settings push
     would clear a failure marked on it directly, and HA skips calls to an
     unavailable entity, so the user could not even retry.
     """
@@ -354,7 +354,7 @@ async def test_toggling_switch_updates_dependent_select(
 ) -> None:
     """Toggling Audyssey Dynamic EQ off also updates Audyssey reference level offset.
 
-    Both entities share the Audyssey coordinator, so the refresh confirming
+    Both entities share the settings coordinator, so the refresh confirming
     the switch's action notifies the select too.
     """
     client.reference_level_offset = "0dB"
@@ -412,19 +412,19 @@ async def test_turn_on_shows_state_immediately_without_polling(
     assert hass.states.get(entity_id).state == STATE_ON
 
 
-async def test_turn_on_always_refreshes_audyssey_after_change(
+async def test_turn_on_always_refreshes_settings_after_change(
     hass: HomeAssistant, client: MagicMock, entity_registry: er.EntityRegistry
 ) -> None:
     """Dynamic EQ refreshes Audyssey data regardless of the option.
 
-    "Update Audyssey settings" governs the recurring poll alone - an
-    action that just changed Audyssey data still confirms itself.
+    "Update audio settings periodically" governs the recurring poll alone -
+    an action that just changed Audyssey data still confirms itself.
     """
     await setup_denonavr(hass, options={CONF_UPDATE_AUDYSSEY: False})
     entity_id = get_entity_id(entity_registry, SWITCH_DOMAIN, "dynamic_eq")
 
-    # Setup already does one initial Audyssey fetch.
-    baseline_calls = client.async_update_audyssey.await_count
+    # Setup already does one initial settings fetch.
+    baseline_calls = client.async_update_settings.await_count
 
     await hass.services.async_call(
         SWITCH_DOMAIN,
@@ -436,7 +436,7 @@ async def test_turn_on_always_refreshes_audyssey_after_change(
 
     # Just one call, since this is the only entity acting - HA's own
     # post-service-call poll doesn't apply here (should_poll=False).
-    assert client.async_update_audyssey.await_count == baseline_calls + 1
+    assert client.async_update_settings.await_count == baseline_calls + 1
 
 
 async def test_rapid_toggles_do_not_race(
@@ -488,9 +488,9 @@ async def test_state_shown_immediately_even_if_refresh_reads_back_stale_value(
     hass: HomeAssistant, client: MagicMock, entity_registry: er.EntityRegistry
 ) -> None:
     """A stale confirmation refresh must not revert a just-set state."""
-    # Simulate the receiver's Audyssey refresh responding with the old
+    # Simulate the receiver's settings refresh responding with the old
     # value, as if the command hadn't internally settled yet.
-    client.async_update_audyssey.side_effect = lambda *a, **k: None  # stays True
+    client.async_update_settings.side_effect = lambda *a, **k: None  # stays True
 
     await setup_denonavr(hass)
     entity_id = get_entity_id(entity_registry, SWITCH_DOMAIN, "dynamic_eq")
@@ -516,7 +516,7 @@ async def test_pending_state_expires_instead_of_masking_forever(
     freezer: FrozenDateTimeFactory,
 ) -> None:
     """A pending state must expire rather than mask reality forever."""
-    client.async_update_audyssey.side_effect = lambda *a, **k: None  # stays True
+    client.async_update_settings.side_effect = lambda *a, **k: None  # stays True
 
     await setup_denonavr(hass)
     entity_id = get_entity_id(entity_registry, SWITCH_DOMAIN, "dynamic_eq")
@@ -545,7 +545,7 @@ async def test_removal_cancels_a_pending_state_expiry(
     freezer: FrozenDateTimeFactory,
 ) -> None:
     """A removed entity's pending state must not expire into a receiver read."""
-    client.async_update_audyssey.side_effect = lambda *a, **k: None  # stays True
+    client.async_update_settings.side_effect = lambda *a, **k: None  # stays True
 
     await setup_denonavr(hass)
     entity_id = get_entity_id(entity_registry, SWITCH_DOMAIN, "dynamic_eq")
@@ -562,13 +562,13 @@ async def test_removal_cancels_a_pending_state_expiry(
     await hass.async_block_till_done()
     entity_registry.async_remove(entity_id)
     await hass.async_block_till_done()
-    reads = client.async_update_audyssey.await_count
+    reads = client.async_update_settings.await_count
 
     freezer.tick(timedelta(seconds=PENDING_VALUE_TIMEOUT + 1))
     async_fire_time_changed(hass)
     await hass.async_block_till_done()
 
-    assert client.async_update_audyssey.await_count == reads
+    assert client.async_update_settings.await_count == reads
 
 
 @pytest.mark.parametrize(
@@ -605,13 +605,13 @@ async def test_telnet_push_clears_a_failure_only_without_a_poll(
 ) -> None:
     """A failed poll reads, and is better evidence than a push.
 
-    A push clearing that failure would make the poll skip, hiding an
-    Audyssey-only HTTP failure behind stale values. It still carries the
+    A push clearing that failure would make the poll skip, hiding a
+    settings-only HTTP failure behind stale values. It still carries the
     new value.
     """
     client.telnet_connected = True
     client.telnet_healthy = True
-    client.async_update_audyssey.side_effect = side_effect
+    client.async_update_settings.side_effect = side_effect
     await setup_denonavr(hass, options)
     entity_id = get_entity_id(entity_registry, SWITCH_DOMAIN, "dynamic_eq")
 

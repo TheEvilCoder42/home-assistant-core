@@ -1,8 +1,9 @@
 """DataUpdateCoordinators for Denon AVR.
 
-Separate coordinators handle general status and Audyssey data: the slow
-Audyssey query polls only with "Update Audyssey settings" on, but must
-still be refreshable on demand without joining every status refresh.
+Separate coordinators handle general status and the AppCommand0300
+settings: that slow query polls only with "Update audio settings periodically"
+on, but must still be refreshable on demand without joining every
+status refresh.
 """
 
 import asyncio
@@ -69,14 +70,14 @@ async def async_refresh_status(receiver: DenonAVR, *, force: bool = False) -> No
             )
 
 
-async def async_update_zone_audyssey(zone_receiver: DenonAVR) -> None:
-    """Read one zone's Audyssey settings.
+async def async_update_zone_settings(zone_receiver: DenonAVR) -> None:
+    """Read one zone's AppCommand0300 settings.
 
     A receiver without Audyssey answers the query short, which is a missing
     feature rather than an unreachable receiver.
     """
     try:
-        await zone_receiver.async_update_audyssey()
+        await zone_receiver.async_update_settings()
     except AvrIncompleteResponseError as err:
         _LOGGER.debug(
             "No Audyssey data for zone %s for %s: %s",
@@ -86,10 +87,13 @@ async def async_update_zone_audyssey(zone_receiver: DenonAVR) -> None:
         )
 
 
-async def async_refresh_audyssey(receiver: DenonAVR, *, force: bool = False) -> None:
-    """Refresh Audyssey settings for every configured zone.
+async def async_refresh_settings(receiver: DenonAVR, *, force: bool = False) -> None:
+    """Refresh the AppCommand0300 settings for every configured zone.
 
-    async_update_audyssey() only updates the zone it is called on, so Zone2
+    That payload carries the Audyssey settings and the audio delay, and
+    denonavr fetches both in one request.
+
+    async_update_settings() only updates the zone it is called on, so Zone2
     and Zone3 need their own fetch. Skipped while Telnet is healthy unless
     force=True: Telnet never pushes on connect, and unlike status, which
     receiver.py reads before connecting, nothing else fetches this at setup.
@@ -98,12 +102,12 @@ async def async_refresh_audyssey(receiver: DenonAVR, *, force: bool = False) -> 
         return
     for zone_receiver in receiver.zones.values():
         try:
-            await async_update_zone_audyssey(zone_receiver)
+            await async_update_zone_settings(zone_receiver)
         except UNAVAILABLE_ON:
             raise
         except DenonAvrError as err:
             _LOGGER.debug(
-                "Error refreshing Audyssey for zone %s for %s: %s",
+                "Error refreshing settings for zone %s for %s: %s",
                 zone_receiver.zone,
                 receiver.name,
                 err,
@@ -111,7 +115,7 @@ async def async_refresh_audyssey(receiver: DenonAVR, *, force: bool = False) -> 
 
 
 class _RefreshFn(Protocol):
-    """Callback signature shared by async_refresh_status/async_refresh_audyssey.
+    """Callback signature shared by async_refresh_status/async_refresh_settings.
 
     Raises only UNAVAILABLE_ON; any other DenonAvrError is handled per zone.
     """
