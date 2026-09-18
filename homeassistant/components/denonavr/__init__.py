@@ -122,6 +122,34 @@ async def async_setup_entry(hass: HomeAssistant, entry: DenonavrConfigEntry) -> 
     # before connecting, so this is skipped. Either read failing is not ready.
     await coordinator.async_config_entry_first_refresh()
 
+    def _watched() -> tuple[str | None, ...]:
+        """Status values whose change leaves the settings stale."""
+        return (receiver.input_func,)
+
+    # As of the last settings read, failed or not, or refresh skipped under a
+    # healthy Telnet, which pushes what a change moves. A failure waits for the
+    # next change, poll or action: unpolled, every status refresh would mark
+    # the settings available again only for the retry to fail them.
+    read_under: tuple[str | None, ...] | None = None
+    # What the pending re-read was requested for: a status refresh that sees
+    # no further change must not restart its wait.
+    requested_for: tuple[str | None, ...] | None = None
+
+    async def _refresh_settings(receiver: DenonAVR, *, force: bool = False) -> None:
+        nonlocal read_under, requested_for
+        watched = _watched()
+        try:
+            await async_refresh_settings(receiver, force=force)
+        finally:
+            read_under = watched
+            if requested_for != watched and requested_for == _watched():
+                # Changed during this read: a debouncer drops a call that falls
+                # due while it runs, so that change's re-read may be lost.
+                settings_coordinator.async_request_settled_refresh()
+            else:
+                # Done, or undone by a return to what this read saw.
+                requested_for = None
+
     settings_coordinator = DenonAvrDataUpdateCoordinator(
         hass,
         entry,
@@ -131,7 +159,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: DenonavrConfigEntry) -> 
         # Opt-in because the fetch can take ~10s. It governs the recurring
         # poll alone: entities still confirm their own actions on demand.
         update_interval=update_interval if update_audyssey else None,
-        refresh_fn=async_refresh_settings,
+        refresh_fn=_refresh_settings,
     )
     coordinator.peer = settings_coordinator
     settings_coordinator.peer = coordinator
@@ -186,6 +214,27 @@ async def async_setup_entry(hass: HomeAssistant, entry: DenonavrConfigEntry) -> 
     # only pushes on a change. Forced, and after the listener above so a
     # failure reaches the status coordinator instead of failing setup.
     await settings_coordinator.async_refresh_forced()
+
+    @callback
+    def _refresh_settings_on_change() -> None:
+        """Re-read the settings after an input source change.
+
+        The receiver stores the audio delay and some Audyssey settings per
+        source, and denonavr forgets the delay on a change; without the
+        periodic poll nothing would read them again. Settled, because the
+        receiver takes a few seconds to switch.
+        """
+        nonlocal requested_for
+        watched = _watched()
+        if watched in (read_under, requested_for):
+            return
+        requested_for = watched
+        # Not forced: while Telnet is healthy it pushes everything a change moves.
+        settings_coordinator.async_request_settled_refresh()
+
+    entry.async_on_unload(
+        coordinator.async_add_internal_listener(_refresh_settings_on_change)
+    )
 
     @callback
     def _telnet_notify_settings(zone: str, event: str, parameter: str) -> None:
