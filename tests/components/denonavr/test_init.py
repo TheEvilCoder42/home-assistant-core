@@ -22,6 +22,7 @@ from homeassistant.components.denonavr.const import (
     CONF_ZONE2,
     CONF_ZONE3,
     DOMAIN,
+    SETTINGS_TELNET_EVENTS,
     SETTLED_REFRESH_DELAY,
 )
 from homeassistant.components.denonavr.coordinator import mark_unavailable
@@ -616,3 +617,30 @@ async def test_unload_cancels_pending_settings_reread(
     await entry.runtime_data.coordinator.async_refresh()
 
     assert await hass.config_entries.async_unload(entry.entry_id)
+
+
+@pytest.mark.parametrize("event", SETTINGS_TELNET_EVENTS)
+async def test_every_settings_telnet_event_notifies_the_coordinator(
+    hass: HomeAssistant,
+    fire_telnet_event: Callable[[str, str, str], None],
+    event: str,
+) -> None:
+    """The settings coordinator is notified for each event group it owns.
+
+    The Audyssey values and the speaker preset arrive as different
+    Telnet events, so registering only one of them leaves the other's
+    entities stale after a front-panel change.
+    """
+    entry = await setup_denonavr(hass)
+    listener = MagicMock()
+    entry.runtime_data.settings_coordinator.async_add_listener(listener)
+
+    fire_telnet_event("Main", "MV", "50")
+    listener.assert_not_called()
+    fire_telnet_event("Main", event, "")
+    listener.assert_called_once()
+
+    await hass.config_entries.async_unload(entry.entry_id)
+    await hass.async_block_till_done()
+    fire_telnet_event("Main", event, "")
+    listener.assert_called_once()

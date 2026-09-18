@@ -50,11 +50,13 @@ def _receiver_with_zones() -> tuple[MagicMock, MagicMock]:
     main.async_update = AsyncMock()
     main.async_update_settings = AsyncMock()
     main.async_update_surround_parameters = AsyncMock()
+    main.async_update_speaker_preset = AsyncMock()
     zone2 = MagicMock()
     zone2.zone = "Zone2"
     zone2.async_update = AsyncMock()
     zone2.async_update_settings = AsyncMock()
     zone2.async_update_surround_parameters = AsyncMock()
+    zone2.async_update_speaker_preset = AsyncMock()
     main.zones = {"Main": main, "Zone2": zone2}
     return main, zone2
 
@@ -204,8 +206,8 @@ async def test_status_refresh_still_fails_on_an_incomplete_response() -> None:
     zone2.async_update.assert_not_awaited()
 
 
-async def test_async_refresh_settings_reads_the_surround_parameters_once() -> None:
-    """The surround parameters are read after the zones, under their cache id.
+async def test_async_refresh_settings_reads_the_post_loop_values_once() -> None:
+    """The surround parameters and the speaker preset follow the zones' loop.
 
     They are receiver-wide, and with the same cache id denonavr answers
     them out of the zones' AppCommand0300 request instead of a second one.
@@ -216,6 +218,7 @@ async def test_async_refresh_settings_reads_the_surround_parameters_once() -> No
     calls.attach_mock(main.async_update_settings, "main_settings")
     calls.attach_mock(zone2.async_update_settings, "zone2_settings")
     calls.attach_mock(main.async_update_surround_parameters, "surround_parameters")
+    calls.attach_mock(main.async_update_speaker_preset, "speaker_preset")
 
     await async_refresh_settings(main)
 
@@ -225,21 +228,32 @@ async def test_async_refresh_settings_reads_the_surround_parameters_once() -> No
         call.main_settings(cache_id=cache_id),
         call.zone2_settings(cache_id=cache_id),
         call.surround_parameters(global_update=True, cache_id=cache_id),
+        call.speaker_preset(global_update=True, cache_id=cache_id),
     ]
     zone2.async_update_surround_parameters.assert_not_awaited()
+    zone2.async_update_speaker_preset.assert_not_awaited()
 
 
-async def test_async_refresh_settings_survives_a_surround_parameter_error() -> None:
-    """An error from the surround parameters must not fail the settings refresh."""
+@pytest.mark.parametrize(
+    "failing",
+    [
+        pytest.param("async_update_settings", id="zone_settings"),
+        pytest.param("async_update_surround_parameters", id="surround_parameters"),
+        pytest.param("async_update_speaker_preset", id="speaker_preset"),
+    ],
+)
+async def test_async_refresh_settings_survives_an_error_in_any_read(
+    failing: str,
+) -> None:
+    """A receiver lacking one of the reads must not fail the refresh or the others."""
     main, zone2 = _receiver_with_zones()
-    main.async_update_surround_parameters.side_effect = AvrCommandError(
-        "not supported", "GetSurroundParameter"
-    )
+    getattr(main, failing).side_effect = AvrCommandError("not supported", "test")
 
-    await async_refresh_settings(main)
+    assert await async_refresh_settings(main) is True
 
-    main.async_update_settings.assert_awaited_once()
     zone2.async_update_settings.assert_awaited_once()
+    main.async_update_surround_parameters.assert_awaited_once()
+    main.async_update_speaker_preset.assert_awaited_once()
 
 
 def _coordinator(

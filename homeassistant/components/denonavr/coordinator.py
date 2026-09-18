@@ -106,10 +106,11 @@ async def async_refresh_settings(receiver: DenonAVR, *, force: bool = False) -> 
     every zone would otherwise post the same bytes for the same answer. It has
     to be new each refresh or the zones are handed the settings from last time.
 
-    The surround parameters ride the same request. They are read again after
-    the loop, for a library whose async_update_settings() does not read them:
-    the loop's cache id makes that free, but only after the loop, as the cache
-    answers from a completed request, not from one still in flight.
+    The surround parameters and the speaker preset ride the same request. They
+    are read again after the loop, for a library whose async_update_settings()
+    does not read them: the loop's cache id makes that free, but only after the
+    loop, as the cache answers from a completed request, not from one still in
+    flight.
 
     Returns whether it read rather than skipped.
     """
@@ -137,6 +138,16 @@ async def async_refresh_settings(receiver: DenonAVR, *, force: bool = False) -> 
     except DenonAvrError as err:
         _LOGGER.debug(
             "Error refreshing the surround parameters for %s: %s", receiver.name, err
+        )
+    try:
+        await receiver.async_update_speaker_preset(
+            global_update=True, cache_id=cache_id
+        )
+    except UNAVAILABLE_ON:
+        raise
+    except DenonAvrError as err:
+        _LOGGER.debug(
+            "Error refreshing the speaker preset for %s: %s", receiver.name, err
         )
     return True
 
