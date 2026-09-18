@@ -22,6 +22,9 @@
       }
     },
     "switch": {
+      "auto_lip_sync": {
+        "default": "mdi:sync"
+      },
       "dynamic_eq": {
         "default": "mdi:auto-fix"
       }

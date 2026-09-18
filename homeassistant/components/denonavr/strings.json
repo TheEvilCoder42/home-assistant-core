@@ -101,6 +101,9 @@
       }
     },
     "switch": {
+      "auto_lip_sync": {
+        "name": "Auto lip sync"
+      },
       "dynamic_eq": {
         "name": "Audyssey Dynamic EQ"
       }

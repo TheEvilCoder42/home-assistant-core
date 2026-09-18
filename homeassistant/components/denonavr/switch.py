@@ -32,8 +32,11 @@ class DenonAvrSwitchEntityDescription(SwitchEntityDescription):
     # the status one.
     uses_settings_coordinator: bool = False
     # For a setting whose available_fn reads a value the other coordinator
-    # holds: without Telnet, only that one's refresh sees it change.
+    # holds, or whose Telnet push notifies only that one: otherwise the
+    # change shows only on this coordinator's next refresh.
     follows_other_coordinator: bool = False
+    # For a setting the receiver applies while any zone is on, not only its own.
+    any_zone_on: bool = False
 
 
 SWITCH_TYPES: tuple[DenonAvrSwitchEntityDescription, ...] = (
@@ -51,6 +54,25 @@ SWITCH_TYPES: tuple[DenonAvrSwitchEntityDescription, ...] = (
             audyssey_available(receiver) and receiver.multi_eq != "Off"
         ),
         uses_settings_coordinator=True,
+        follows_other_coordinator=True,
+    ),
+    DenonAvrSwitchEntityDescription(
+        key="auto_lip_sync",
+        translation_key="auto_lip_sync",
+        entity_category=EntityCategory.CONFIG,
+        is_on_fn=lambda receiver: receiver.auto_lip_sync,
+        # Not async_auto_lip_sync_toggle(): it inverts the last value read, so
+        # it raises while that is unknown and repeats a change not yet read back.
+        set_fn=lambda receiver, on: (
+            receiver.async_auto_lip_sync_on()
+            if on
+            else receiver.async_auto_lip_sync_off()
+        ),
+        any_zone_on=True,
+        # Without Telnet the value comes from GetAudioDelay, which only
+        # this coordinator's request fetches.
+        uses_settings_coordinator=True,
+        # Its Telnet push arrives on OP or SS, which notify the status one.
         follows_other_coordinator=True,
     ),
 )
@@ -86,6 +108,7 @@ class DenonAvrSwitch(DenonAvrPendingValueEntity[bool], SwitchEntity):
             config_entry,
             description.key,
             follows_other_coordinator=description.follows_other_coordinator,
+            any_zone_on=description.any_zone_on,
         )
         self.entity_description = description
 

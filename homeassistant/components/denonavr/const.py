@@ -35,5 +35,6 @@ SETTLED_REFRESH_DELAY = 5
 
 # The event group the Audyssey settings and the audio delay arrive in.
 # __init__.py notifies the settings coordinator on it, whether or not
-# media_player is enabled.
+# media_player is enabled. Auto lip sync arrives on OP or SS instead, so its
+# switch follows the status coordinator.
 SETTINGS_TELNET_EVENT = "PS"

@@ -3,9 +3,10 @@
 import asyncio
 from collections.abc import Callable
 from datetime import timedelta
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, create_autospec, patch
 
-from denonavr.const import POWER_OFF, POWER_STANDBY
+from denonavr import DenonAVR
+from denonavr.const import MAIN_ZONE, POWER_OFF, POWER_ON, POWER_STANDBY, ZONE2
 from denonavr.exceptions import AvrCommandError, AvrNetworkError
 from freezegun.api import FrozenDateTimeFactory
 import pytest
@@ -620,3 +621,124 @@ async def test_telnet_push_clears_a_failure_only_without_a_poll(
     await hass.async_block_till_done()
 
     assert hass.states.get(entity_id).state == expected_state
+
+
+async def test_auto_lip_sync_unavailable_when_unknown(
+    hass: HomeAssistant, client: MagicMock, entity_registry: er.EntityRegistry
+) -> None:
+    """A receiver that reports no Auto lip sync state gives unavailable, not off.
+
+    The receiver only reports it over Telnet or through GetAudioDelay,
+    so "no value yet" has to be distinguishable from "off".
+    """
+    client.auto_lip_sync = None
+    await setup_denonavr(hass)
+
+    entity_id = get_entity_id(entity_registry, SWITCH_DOMAIN, "auto_lip_sync")
+    state = hass.states.get(entity_id)
+    assert state
+    assert state.state == STATE_UNAVAILABLE
+
+
+@pytest.mark.parametrize(
+    ("service", "called", "not_called"),
+    [
+        pytest.param(
+            SERVICE_TURN_ON,
+            "async_auto_lip_sync_on",
+            "async_auto_lip_sync_off",
+            id="turn_on",
+        ),
+        pytest.param(
+            SERVICE_TURN_OFF,
+            "async_auto_lip_sync_off",
+            "async_auto_lip_sync_on",
+            id="turn_off",
+        ),
+    ],
+)
+async def test_set_auto_lip_sync(
+    hass: HomeAssistant,
+    client: MagicMock,
+    entity_registry: er.EntityRegistry,
+    service: str,
+    called: str,
+    not_called: str,
+) -> None:
+    """Each direction sends its own command, never the toggle.
+
+    async_auto_lip_sync_toggle() inverts the last value read, so it raises
+    while that is unknown and repeats a change not yet read back.
+    """
+    await setup_denonavr(hass)
+    entity_id = get_entity_id(entity_registry, SWITCH_DOMAIN, "auto_lip_sync")
+
+    await hass.services.async_call(
+        SWITCH_DOMAIN,
+        service,
+        {ATTR_ENTITY_ID: entity_id},
+        blocking=True,
+    )
+
+    getattr(client, called).assert_awaited_once()
+    getattr(client, not_called).assert_not_awaited()
+    client.async_auto_lip_sync_toggle.assert_not_awaited()
+
+
+@pytest.mark.parametrize(
+    ("key", "command"),
+    [pytest.param("auto_lip_sync", "async_auto_lip_sync_off", id="auto_lip_sync")],
+)
+async def test_any_zone_setting_sent_with_only_zone2_on(
+    hass: HomeAssistant,
+    client: MagicMock,
+    entity_registry: er.EntityRegistry,
+    key: str,
+    command: str,
+) -> None:
+    """Sent with the main zone off: the receiver applies it while any zone is on."""
+    await setup_denonavr(hass)
+    entity_id = get_entity_id(entity_registry, SWITCH_DOMAIN, key)
+    zone2 = create_autospec(DenonAVR, instance=True)
+    zone2.power = POWER_ON
+    client.zones = {MAIN_ZONE: client, ZONE2: zone2}
+    client.power = POWER_OFF
+
+    await hass.services.async_call(
+        SWITCH_DOMAIN, SERVICE_TURN_OFF, {ATTR_ENTITY_ID: entity_id}, blocking=True
+    )
+
+    getattr(client, command).assert_awaited_once()
+
+
+@pytest.mark.parametrize(
+    ("event", "parameter"),
+    [
+        pytest.param("OP", "ALSSET OFF", id="denon"),
+        pytest.param("SS", "HOSALS OFF", id="marantz"),
+    ],
+)
+async def test_auto_lip_sync_follows_its_telnet_push(
+    hass: HomeAssistant,
+    client: MagicMock,
+    entity_registry: er.EntityRegistry,
+    fire_telnet_event: Callable[[str, str, str], None],
+    event: str,
+    parameter: str,
+) -> None:
+    """A change made on the receiver shows while Telnet is healthy.
+
+    It arrives on OP or SS, which notify the status coordinator rather than
+    the settings one the switch reads with.
+    """
+    client.telnet_connected = True
+    client.telnet_healthy = True
+    client.auto_lip_sync = True
+    await setup_denonavr(hass)
+    entity_id = get_entity_id(entity_registry, SWITCH_DOMAIN, "auto_lip_sync")
+    assert hass.states.get(entity_id).state == STATE_ON
+
+    client.auto_lip_sync = False
+    fire_telnet_event("Main", event, parameter)
+
+    assert hass.states.get(entity_id).state == STATE_OFF
