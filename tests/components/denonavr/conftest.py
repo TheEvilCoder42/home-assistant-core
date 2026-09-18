@@ -78,6 +78,8 @@ def client_fixture() -> Generator[MagicMock]:
         client.lfe_adjustable = True
         client.subwoofer = True
         client.subwoofer_adjustable = True
+        client.speaker_preset = 1
+        client.speaker_preset_list = [1, 2]
         yield client
 
 
