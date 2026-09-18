@@ -55,6 +55,13 @@
       },
       "reference_level_offset": {
         "name": "Reference level offset"
+      },
+      "speaker_preset": {
+        "name": "Speaker preset",
+        "state": {
+          "preset_1": "Preset 1",
+          "preset_2": "Preset 2"
+        }
       }
     },
     "switch": {

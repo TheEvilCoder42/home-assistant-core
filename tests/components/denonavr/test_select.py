@@ -313,6 +313,68 @@ async def test_auto_standby(hass: HomeAssistant, client: MagicMock) -> None:
     client.async_auto_standby.assert_awaited_once_with("30M")
 
 
+async def test_speaker_preset(hass: HomeAssistant, client: MagicMock) -> None:
+    """Test the speaker preset select reads and writes correctly.
+
+    The receiver numbers its presets and denonavr takes an int, while
+    the select's option is a translated string - so this covers the
+    mapping in both directions.
+    """
+    await setup_denonavr(hass)
+
+    entity_id = _entity_id(hass, "speaker_preset")
+    state = hass.states.get(entity_id)
+    assert state
+    assert state.state == "preset_1"
+    assert state.attributes["options"] == ["preset_1", "preset_2"]
+
+    await hass.services.async_call(
+        SELECT_DOMAIN,
+        SERVICE_SELECT_OPTION,
+        {ATTR_ENTITY_ID: entity_id, ATTR_OPTION: "preset_2"},
+        blocking=True,
+    )
+    client.async_speaker_preset.assert_awaited_once_with(2)
+
+
+async def test_speaker_preset_unavailable_when_not_reported(
+    hass: HomeAssistant, client: MagicMock
+) -> None:
+    """A receiver that never reports a preset must not look like preset 1."""
+    client.speaker_preset = None
+    await setup_denonavr(hass)
+
+    entity_id = _entity_id(hass, "speaker_preset")
+    state = hass.states.get(entity_id)
+    assert state
+    assert state.state == STATE_UNAVAILABLE
+
+
+async def test_speaker_preset_telnet_event_notifies_the_settings_coordinator(
+    hass: HomeAssistant, client: MagicMock
+) -> None:
+    """A front-panel preset change arrives as its own Telnet event.
+
+    "SP" is a different event group from the Audyssey values' "PS", so
+    the entity only updates if __init__.py registered both.
+    """
+    await setup_denonavr(hass)
+    entity_id = _entity_id(hass, "speaker_preset")
+
+    telnet_callbacks = [
+        call.args[1]
+        for call in client.register_callback.call_args_list
+        if call.args[0] == "SP" and not hasattr(call.args[1], "__self__")
+    ]
+    assert telnet_callbacks
+
+    client.speaker_preset = 2
+    for callback in telnet_callbacks:
+        callback("Main", "SP", "PR 2")
+
+    assert hass.states.get(entity_id).state == "preset_2"
+
+
 async def test_unavailable_after_connectivity_error_then_recovers(
     hass: HomeAssistant, client: MagicMock
 ) -> None:

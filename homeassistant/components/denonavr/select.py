@@ -19,6 +19,8 @@ from .const import (
     DIMMER_OPTIONS,
     DOMAIN,
     ECO_MODE_OPTIONS,
+    SPEAKER_PRESET_OPTIONS,
+    SPEAKER_PRESET_VALUES,
 )
 from .coordinator import DenonAvrDataUpdateCoordinator
 from .entity import DenonAvrPendingValueEntity
@@ -106,6 +108,21 @@ SELECT_TYPES: tuple[DenonAvrSelectEntityDescription, ...] = (
         current_option_fn=lambda receiver: receiver.auto_standby,
         options_fn=lambda receiver: list(AUTO_STANDBY_OPTIONS),
         select_option_fn=lambda receiver, option: receiver.async_auto_standby(option),
+    ),
+    DenonAvrSelectEntityDescription(
+        key="speaker_preset",
+        translation_key="speaker_preset",
+        entity_category=EntityCategory.CONFIG,
+        current_option_fn=lambda receiver: SPEAKER_PRESET_OPTIONS.get(
+            receiver.speaker_preset
+        ),
+        options_fn=lambda receiver: list(SPEAKER_PRESET_VALUES),
+        select_option_fn=lambda receiver, option: receiver.async_speaker_preset(
+            SPEAKER_PRESET_VALUES[option]
+        ),
+        # Receiver-wide rather than per zone, and answered even in
+        # standby, so it needs no availability or power-state gate.
+        uses_settings_coordinator=True,
     ),
 )
 

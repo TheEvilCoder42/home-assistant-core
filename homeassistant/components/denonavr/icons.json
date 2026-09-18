@@ -19,6 +19,9 @@
       },
       "reference_level_offset": {
         "default": "mdi:tune-vertical"
+      },
+      "speaker_preset": {
+        "default": "mdi:speaker-multiple"
       }
     },
     "switch": {
