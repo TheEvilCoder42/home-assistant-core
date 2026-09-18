@@ -37,7 +37,14 @@
     }
   },
   "entity": {
-    "number": {},
+    "number": {
+      "bass": {
+        "name": "Tone control bass"
+      },
+      "treble": {
+        "name": "Tone control treble"
+      }
+    },
     "select": {
       "auto_standby": {
         "name": "Auto standby",
@@ -100,6 +107,9 @@
     "switch": {
       "dynamic_eq": {
         "name": "Audyssey Dynamic EQ"
+      },
+      "tone_control": {
+        "name": "Tone control"
       }
     }
   },

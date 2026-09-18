@@ -72,6 +72,11 @@ def client_fixture() -> Generator[MagicMock]:
         client.eco_mode = "Auto"
         client.dimmer = "Bright"
         client.auto_standby = "OFF"
+        client.support_tone_control = True
+        client.tone_control_adjust = True
+        # The raw 0..12 scale denonavr reports, +4dB and -4dB.
+        client.bass = 10
+        client.treble = 2
         yield client
 
 
