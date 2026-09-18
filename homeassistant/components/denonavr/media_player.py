@@ -356,6 +356,8 @@ class DenonDevice(CoordinatorEntity[DenonAvrDataUpdateCoordinator], MediaPlayerE
     async def async_select_source(self, source: str) -> None:
         """Select input source."""
         await self._receiver.async_set_input_func(source)
+        # The confirming read straight after still reports the old source.
+        self.coordinator.async_request_settled_refresh()
 
     @async_handle_command
     @override

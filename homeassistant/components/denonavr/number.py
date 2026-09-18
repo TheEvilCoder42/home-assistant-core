@@ -6,7 +6,12 @@ from typing import Any, override
 
 from denonavr import DenonAVR
 
-from homeassistant.components.number import NumberEntity, NumberEntityDescription
+from homeassistant.components.number import (
+    NumberDeviceClass,
+    NumberEntity,
+    NumberEntityDescription,
+)
+from homeassistant.const import EntityCategory, UnitOfTime
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
@@ -26,9 +31,29 @@ class DenonAvrNumberEntityDescription(NumberEntityDescription):
     set_fn: Callable[[DenonAVR, float], Coroutine[Any, Any, None]]
     # Whether the setting can currently be changed.
     available_fn: Callable[[DenonAVR], bool] = lambda receiver: True
+    # AppCommand0300 values need the coordinator whose poll is conditional
+    # on "Update audio settings periodically"; everything else reads with
+    # the status one.
+    uses_settings_coordinator: bool = False
 
 
-NUMBER_TYPES: tuple[DenonAvrNumberEntityDescription, ...] = ()
+NUMBER_TYPES: tuple[DenonAvrNumberEntityDescription, ...] = (
+    DenonAvrNumberEntityDescription(
+        key="audio_delay",
+        translation_key="audio_delay",
+        device_class=NumberDeviceClass.DURATION,
+        native_unit_of_measurement=UnitOfTime.MILLISECONDS,
+        native_min_value=0,
+        native_max_value=500,
+        native_step=1,
+        entity_category=EntityCategory.CONFIG,
+        # Stored per input source, so over HTTP denonavr drops the value on a
+        # source change and this reads None until the next refresh.
+        value_fn=lambda receiver: receiver.audio_delay,
+        set_fn=lambda receiver, value: receiver.async_delay(int(value)),
+        uses_settings_coordinator=True,
+    ),
+)
 
 
 async def async_setup_entry(
@@ -54,7 +79,13 @@ class DenonAvrNumber(DenonAvrPendingValueEntity[float], NumberEntity):
     ) -> None:
         """Initialize the number entity."""
         data = config_entry.runtime_data
-        super().__init__(data.coordinator, config_entry, description.key)
+        super().__init__(
+            data.settings_coordinator
+            if description.uses_settings_coordinator
+            else data.coordinator,
+            config_entry,
+            description.key,
+        )
         self.entity_description = description
 
     @override

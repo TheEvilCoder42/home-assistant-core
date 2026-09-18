@@ -72,6 +72,7 @@ def client_fixture() -> Generator[MagicMock]:
         client.eco_mode = "Auto"
         client.dimmer = "Bright"
         client.auto_standby = "OFF"
+        client.audio_delay = 140
         yield client
 
 
