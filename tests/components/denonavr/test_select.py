@@ -21,6 +21,7 @@ from homeassistant.const import (
     ATTR_OPTION,
     SERVICE_SELECT_OPTION,
     STATE_UNAVAILABLE,
+    STATE_UNKNOWN,
 )
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
@@ -335,6 +336,55 @@ async def test_speaker_preset(hass: HomeAssistant, client: MagicMock) -> None:
         blocking=True,
     )
     client.async_speaker_preset.assert_awaited_once_with(2)
+
+
+async def test_speaker_preset_options_follow_the_receiver(
+    hass: HomeAssistant, client: MagicMock
+) -> None:
+    """A receiver with more than two presets must offer all of them.
+
+    How many there are is the receiver's to declare - denonavr reads the
+    list out of Deviceinfo.xml - so nothing here may assume two.
+    """
+    client.speaker_preset_list = [1, 2, 3, 4]
+    client.speaker_preset = 3
+    await setup_denonavr(hass)
+
+    entity_id = _entity_id(hass, "speaker_preset")
+    state = hass.states.get(entity_id)
+    assert state
+    assert state.state == "preset_3"
+    assert state.attributes["options"] == [
+        "preset_1",
+        "preset_2",
+        "preset_3",
+        "preset_4",
+    ]
+
+    await hass.services.async_call(
+        SELECT_DOMAIN,
+        SERVICE_SELECT_OPTION,
+        {ATTR_ENTITY_ID: entity_id, ATTR_OPTION: "preset_4"},
+        blocking=True,
+    )
+    client.async_speaker_preset.assert_awaited_once_with(4)
+
+
+async def test_speaker_preset_outside_the_receivers_list_is_not_unavailable(
+    hass: HomeAssistant, client: MagicMock
+) -> None:
+    """A preset the receiver does not list reads unknown, not unavailable.
+
+    The entity dropping out would hide a working receiver; unknown says
+    the value cannot be named while leaving the options selectable.
+    """
+    client.speaker_preset = 3
+    await setup_denonavr(hass)
+
+    entity_id = _entity_id(hass, "speaker_preset")
+    state = hass.states.get(entity_id)
+    assert state
+    assert state.state == STATE_UNKNOWN
 
 
 async def test_speaker_preset_unavailable_when_not_reported(

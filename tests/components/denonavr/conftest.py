@@ -74,4 +74,5 @@ def client_fixture() -> Generator[MagicMock]:
         mock_client_class.return_value.dimmer = "Bright"
         mock_client_class.return_value.auto_standby = "OFF"
         mock_client_class.return_value.speaker_preset = 1
+        mock_client_class.return_value.speaker_preset_list = [1, 2]
         yield mock_client_class.return_value

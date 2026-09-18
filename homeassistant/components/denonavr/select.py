@@ -19,8 +19,7 @@ from .const import (
     DIMMER_OPTIONS,
     DOMAIN,
     ECO_MODE_OPTIONS,
-    SPEAKER_PRESET_OPTIONS,
-    SPEAKER_PRESET_VALUES,
+    SPEAKER_PRESET_OPTION_PREFIX,
 )
 from .coordinator import DenonAvrDataUpdateCoordinator
 from .entity import DenonAvrPendingValueEntity
@@ -28,6 +27,16 @@ from .entity import DenonAvrPendingValueEntity
 # Denon receivers do not handle concurrent requests reliably. Only
 # covers multi-entity calls - entity.py's shared lock covers the rest.
 PARALLEL_UPDATES = 1
+
+
+def _speaker_preset_option(preset: int) -> str:
+    """Return the option key for a preset number."""
+    return f"{SPEAKER_PRESET_OPTION_PREFIX}{preset}"
+
+
+def _speaker_preset_number(option: str) -> int:
+    """Return the preset number an option key stands for."""
+    return int(option.removeprefix(SPEAKER_PRESET_OPTION_PREFIX))
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -113,12 +122,19 @@ SELECT_TYPES: tuple[DenonAvrSelectEntityDescription, ...] = (
         key="speaker_preset",
         translation_key="speaker_preset",
         entity_category=EntityCategory.CONFIG,
-        current_option_fn=lambda receiver: SPEAKER_PRESET_OPTIONS.get(
-            receiver.speaker_preset
+        # Mapped whatever the number is, not looked up in a fixed set: a
+        # receiver reporting a preset its own list leaves out should read
+        # unknown, not drop the entity.
+        current_option_fn=lambda receiver: (
+            None
+            if receiver.speaker_preset is None
+            else _speaker_preset_option(receiver.speaker_preset)
         ),
-        options_fn=lambda receiver: list(SPEAKER_PRESET_VALUES),
+        options_fn=lambda receiver: [
+            _speaker_preset_option(preset) for preset in receiver.speaker_preset_list
+        ],
         select_option_fn=lambda receiver, option: receiver.async_speaker_preset(
-            SPEAKER_PRESET_VALUES[option]
+            _speaker_preset_number(option)
         ),
         # Receiver-wide rather than per zone, and answered even in
         # standby, so it needs no availability or power-state gate.

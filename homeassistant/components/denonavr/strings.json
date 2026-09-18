@@ -60,7 +60,9 @@
         "name": "Speaker preset",
         "state": {
           "preset_1": "Preset 1",
-          "preset_2": "Preset 2"
+          "preset_2": "Preset 2",
+          "preset_3": "Preset 3",
+          "preset_4": "Preset 4"
         }
       }
     },

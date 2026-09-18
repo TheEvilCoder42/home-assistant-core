@@ -40,13 +40,11 @@ ECO_MODE_OPTIONS = ("On", "Auto", "Off")
 DIMMER_OPTIONS = ("Off", "Dark", "Dim", "Bright")
 AUTO_STANDBY_OPTIONS = ("OFF", "15M", "30M", "60M", "2H", "4H", "8H")
 
-# The receiver numbers its speaker presets; HA's select speaks
-# translatable string options. Both directions live here so neither the
-# option list nor the range the receiver accepts is spelled out twice.
-SPEAKER_PRESET_OPTIONS = {1: "preset_1", 2: "preset_2"}
-SPEAKER_PRESET_VALUES = {
-    option: preset for preset, option in SPEAKER_PRESET_OPTIONS.items()
-}
+# The receiver numbers its speaker presets and denonavr takes an int;
+# HA's select speaks translatable option keys. How many there are is the
+# receiver's to say - denonavr reads the list out of Deviceinfo.xml - so
+# only the spelling lives here.
+SPEAKER_PRESET_OPTION_PREFIX = "preset_"
 
 # Telnet event groups carrying the settings the settings coordinator
 # owns: "PS" for the Audyssey values (DYNEQ, MULTEQ, REFLEV, DYNVOL)
