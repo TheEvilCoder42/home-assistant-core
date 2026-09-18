@@ -63,6 +63,8 @@ def client_fixture() -> Generator[MagicMock]:
         mock_client_class.return_value.lfe_adjustable = True
         mock_client_class.return_value.subwoofer = True
         mock_client_class.return_value.subwoofer_adjustable = True
+        mock_client_class.return_value.speaker_preset = 1
+        mock_client_class.return_value.speaker_preset_list = [1, 2]
         yield mock_client_class.return_value
 
 

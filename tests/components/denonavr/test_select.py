@@ -164,14 +164,63 @@ async def test_multi_eq_options_follow_the_receiver(
     ]
 
 
-async def test_unknown_value_is_unavailable(
+async def test_speaker_preset_options_follow_the_receiver(
     hass: HomeAssistant, client: MagicMock, entity_registry: er.EntityRegistry
 ) -> None:
-    """A value outside the option keys is not shown as one of them."""
-    client.dimmer = "Unexpected"
+    """Every preset the receiver declares is offered, however many.
+
+    denonavr reads the list out of Deviceinfo.xml.
+    """
+    client.speaker_preset_list = [1, 2, 3, 4, 5]
+    client.speaker_preset = 5
     await setup_denonavr(hass)
 
-    entity_id = get_entity_id(entity_registry, SELECT_DOMAIN, "dimmer")
+    entity_id = get_entity_id(entity_registry, SELECT_DOMAIN, "speaker_preset")
+    state = hass.states.get(entity_id)
+    assert state.state == "5"
+    assert state.attributes["options"] == ["1", "2", "3", "4", "5"]
+
+    await _select_option(hass, entity_id, "4")
+
+    client.async_speaker_preset.assert_awaited_once_with(4)
+
+
+async def test_speaker_preset_outside_the_receivers_list_is_offered(
+    hass: HomeAssistant, client: MagicMock, entity_registry: er.EntityRegistry
+) -> None:
+    """A reported preset the list leaves out is shown and offered anyway.
+
+    The list is denonavr's (1, 2) fallback where Deviceinfo.xml declares
+    none, so the receiver's own report is the better evidence.
+    """
+    client.speaker_preset = 3
+    await setup_denonavr(hass)
+
+    entity_id = get_entity_id(entity_registry, SELECT_DOMAIN, "speaker_preset")
+    state = hass.states.get(entity_id)
+    assert state.state == "3"
+    assert state.attributes["options"] == ["1", "2", "3"]
+
+
+@pytest.mark.parametrize(
+    ("key", "value"),
+    [
+        pytest.param("dimmer", "Unexpected", id="dimmer_unexpected"),
+        pytest.param("speaker_preset", None, id="speaker_preset_not_reported"),
+    ],
+)
+async def test_unknown_value_is_unavailable(
+    hass: HomeAssistant,
+    client: MagicMock,
+    entity_registry: er.EntityRegistry,
+    key: str,
+    value: str | None,
+) -> None:
+    """A value outside the option keys, or none yet, is not shown as one of them."""
+    setattr(client, key, value)
+    await setup_denonavr(hass)
+
+    entity_id = get_entity_id(entity_registry, SELECT_DOMAIN, key)
     assert hass.states.get(entity_id).state == STATE_UNAVAILABLE
 
 
@@ -200,6 +249,13 @@ async def test_unknown_value_is_unavailable(
         pytest.param(
             "auto_standby", "30m", "async_auto_standby", "30M", id="auto_standby"
         ),
+        pytest.param(
+            "speaker_preset",
+            "2",
+            "async_speaker_preset",
+            2,
+            id="speaker_preset",
+        ),
     ],
 )
 async def test_select_option(
@@ -209,7 +265,7 @@ async def test_select_option(
     key: str,
     option: str,
     command: str,
-    value: str,
+    value: str | int,
 ) -> None:
     """Selecting an option sends the receiver's value and shows the option."""
     await setup_denonavr(hass)
@@ -670,6 +726,15 @@ async def test_rapid_consecutive_selections_do_not_race(
     [
         pytest.param("multi_eq", "PS", "multi_eq", "Flat", "flat", id="settings"),
         pytest.param("dimmer", "DIM", "dimmer", "Dark", "dark", id="status"),
+        # A different event group from the Audyssey values' "PS".
+        pytest.param(
+            "speaker_preset",
+            "SP",
+            "speaker_preset",
+            2,
+            "2",
+            id="speaker_preset",
+        ),
     ],
 )
 async def test_telnet_push_updates_entities_without_media_player(
@@ -680,7 +745,7 @@ async def test_telnet_push_updates_entities_without_media_player(
     key: str,
     event: str,
     attribute: str,
-    value: str,
+    value: str | int,
     state: str,
 ) -> None:
     """A Telnet push reaches the selects on either coordinator.

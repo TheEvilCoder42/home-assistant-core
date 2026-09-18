@@ -1,7 +1,7 @@
 """Support for Denon AVR select entities."""
 
 from collections.abc import Callable, Coroutine
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, override
 
 from denonavr import DenonAVR
@@ -24,7 +24,9 @@ class DenonAvrSelectEntityDescription(SelectEntityDescription):
     """Describes a Denon AVR select entity."""
 
     # Option key -> the value denonavr reads and sets for it.
-    values: dict[str, str]
+    values: dict[str, str] = field(default_factory=dict)
+    # Replaces values where the receiver decides what it offers.
+    values_fn: Callable[[DenonAVR], dict[str, str]] | None = None
     current_value_fn: Callable[[DenonAVR], str | None]
     select_value_fn: Callable[[DenonAVR, str], Coroutine[Any, Any, None]]
     # The values the receiver accepts, where that depends on the connection.
@@ -121,6 +123,29 @@ SELECT_TYPES: tuple[DenonAvrSelectEntityDescription, ...] = (
         current_value_fn=lambda receiver: receiver.auto_standby,
         select_value_fn=lambda receiver, value: receiver.async_auto_standby(value),
     ),
+    DenonAvrSelectEntityDescription(
+        key="speaker_preset",
+        translation_key="speaker_preset",
+        entity_category=EntityCategory.CONFIG,
+        # The preset numbers themselves: the receiver's list is open-ended,
+        # and a number needs no translation.
+        values_fn=lambda receiver: {
+            str(preset): str(preset)
+            for preset in dict.fromkeys(
+                [*receiver.speaker_preset_list, receiver.speaker_preset]
+            )
+            if preset is not None
+        },
+        current_value_fn=lambda receiver: (
+            None if receiver.speaker_preset is None else str(receiver.speaker_preset)
+        ),
+        select_value_fn=lambda receiver, value: receiver.async_speaker_preset(
+            int(value)
+        ),
+        # Receiver-wide rather than per zone, and answered even in
+        # standby, so it needs no availability or power-state gate.
+        uses_settings_coordinator=True,
+    ),
 )
 
 
@@ -156,9 +181,12 @@ class DenonAvrSelect(DenonAvrPendingValueEntity[str], SelectEntity):
             follows_other_coordinator=description.follows_other_coordinator,
         )
         self.entity_description = description
-        self._options_by_value = {
-            value: option for option, value in description.values.items()
-        }
+
+    def _values(self) -> dict[str, str]:
+        """Return the option key -> receiver value map."""
+        if (values_fn := self.entity_description.values_fn) is None:
+            return self.entity_description.values
+        return values_fn(self._receiver)
 
     @override
     def _read_value(self) -> str | None:
@@ -166,7 +194,10 @@ class DenonAvrSelect(DenonAvrPendingValueEntity[str], SelectEntity):
         value = self.entity_description.current_value_fn(self._receiver)
         if value is None:
             return None
-        return self._options_by_value.get(value)
+        return next(
+            (option for option, known in self._values().items() if known == value),
+            None,
+        )
 
     @property
     @override
@@ -190,7 +221,7 @@ class DenonAvrSelect(DenonAvrPendingValueEntity[str], SelectEntity):
     @override
     def options(self) -> list[str]:
         """Return the options the receiver accepts."""
-        values = self.entity_description.values
+        values = self._values()
         if (settable_values_fn := self.entity_description.settable_values_fn) is None:
             return list(values)
         settable = settable_values_fn(self._receiver)
@@ -199,7 +230,7 @@ class DenonAvrSelect(DenonAvrPendingValueEntity[str], SelectEntity):
     @override
     async def async_select_option(self, option: str) -> None:
         """Change the selected option."""
-        value = self.entity_description.values[option]
+        value = self._values()[option]
         await self._async_apply_change(
             send=lambda: self.entity_description.select_value_fn(self._receiver, value),
             value=option,
