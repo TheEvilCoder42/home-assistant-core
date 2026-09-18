@@ -36,6 +36,7 @@
     }
   },
   "entity": {
+    "number": {},
     "select": {
       "auto_standby": {
         "name": "Auto standby"
