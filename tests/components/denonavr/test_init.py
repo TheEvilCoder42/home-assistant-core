@@ -33,10 +33,10 @@ from . import (
 )
 
 
-async def test_setup_skips_redundant_audyssey_refresh_with_telnet(
+async def test_setup_skips_redundant_settings_refresh_with_telnet(
     hass: HomeAssistant, client: MagicMock
 ) -> None:
-    """Setup fetches Audyssey once with Telnet and "Update Audyssey settings" on.
+    """Setup fetches the settings once with Telnet and polling both on.
 
     Each fetch is a full AppCommand0300 round trip, and setup runs again on
     every reload.
@@ -45,16 +45,16 @@ async def test_setup_skips_redundant_audyssey_refresh_with_telnet(
         hass, options={CONF_USE_TELNET: True, CONF_UPDATE_AUDYSSEY: True}
     )
 
-    assert client.async_update_audyssey.await_count == 1
+    assert client.async_update_settings.await_count == 1
 
 
-async def test_setup_forces_audyssey_fetch_with_telnet_but_no_polling(
+async def test_setup_forces_settings_fetch_with_telnet_but_no_polling(
     hass: HomeAssistant, client: MagicMock, entity_registry: er.EntityRegistry
 ) -> None:
-    """Setup still fetches Audyssey once when Telnet is on but polling is off.
+    """Setup still fetches the settings once when Telnet is on but polling is off.
 
     Telnet only pushes Audyssey data on a change, never on connect, so
-    without forcing this fetch, async_refresh_audyssey's own Telnet-healthy
+    without forcing this fetch, async_refresh_settings's own Telnet-healthy
     skip would leave these entities unavailable indefinitely.
     """
     client.telnet_connected = True
@@ -64,13 +64,13 @@ async def test_setup_forces_audyssey_fetch_with_telnet_but_no_polling(
     async def _populate(*_args: object, **_kwargs: object) -> None:
         client.dynamic_eq = True
 
-    client.async_update_audyssey.side_effect = _populate
+    client.async_update_settings.side_effect = _populate
 
     await setup_denonavr(
         hass, options={CONF_USE_TELNET: True, CONF_UPDATE_AUDYSSEY: False}
     )
 
-    assert client.async_update_audyssey.await_count == 1
+    assert client.async_update_settings.await_count == 1
     entity_id = get_entity_id(entity_registry, SWITCH_DOMAIN, "dynamic_eq")
     assert hass.states.get(entity_id).state != STATE_UNAVAILABLE
 
@@ -222,11 +222,11 @@ async def test_unload_removes_disabled_zone_entity(
 @pytest.mark.parametrize(
     "events",
     [
-        # A status push says nothing of the Audyssey settings, so the outage
-        # ends with the push that does.
+        # A status push says nothing of the settings, so the outage ends with
+        # the push that does.
         pytest.param(("MV", "MV", "PS"), id="status_event_first"),
-        # Reaches both coordinators' callbacks, the Audyssey one first.
-        pytest.param(("PS", "PS"), id="audyssey_event"),
+        # Reaches both coordinators' callbacks, the settings one first.
+        pytest.param(("PS", "PS"), id="settings_event"),
     ],
 )
 async def test_telnet_push_logs_recovery_once(
@@ -241,18 +241,18 @@ async def test_telnet_push_logs_recovery_once(
     client.telnet_healthy = True
     entry = await setup_denonavr(hass)
     coordinator = entry.runtime_data.coordinator
-    audyssey_coordinator = entry.runtime_data.audyssey_coordinator
+    settings_coordinator = entry.runtime_data.settings_coordinator
     err = AvrNetworkError("Connection refused", "test")
     mark_unavailable(coordinator, err)
     # Healthy Telnet hands nothing over; a failed update_audyssey marks both.
-    assert audyssey_coordinator.last_update_success
-    mark_unavailable(audyssey_coordinator, err)
+    assert settings_coordinator.last_update_success
+    mark_unavailable(settings_coordinator, err)
 
     for event in events:
         fire_telnet_event("Main", event, "")
 
     assert coordinator.last_update_success
-    assert audyssey_coordinator.last_update_success
+    assert settings_coordinator.last_update_success
     assert caplog.text.count("data recovered") == 1
 
 

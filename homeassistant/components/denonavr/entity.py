@@ -131,7 +131,7 @@ class DenonAvrPendingValueEntity[_T](CoordinatorEntity[DenonAvrDataUpdateCoordin
     def _async_handle_pending_expiry(self, _now: Any) -> None:
         """Give up on an unconfirmed pending value and read the receiver.
 
-        No poll is guaranteed to follow: the Audyssey one is off by default
+        No poll is guaranteed to follow: the settings one is off by default
         and polling can be disabled, so without this the state could keep
         showing the pending value with nothing left to correct it.
         Forced, because expiry means no Telnet push confirmed the value and
@@ -188,8 +188,8 @@ class DenonAvrPendingValueEntity[_T](CoordinatorEntity[DenonAvrDataUpdateCoordin
         if self._follows_other_coordinator:
             other = (
                 self._data.coordinator
-                if self.coordinator is self._data.audyssey_coordinator
-                else self._data.audyssey_coordinator
+                if self.coordinator is self._data.settings_coordinator
+                else self._data.settings_coordinator
             )
             self.async_on_remove(
                 other.async_add_listener(self._handle_coordinator_update)
@@ -211,8 +211,8 @@ class DenonAvrPendingValueEntity[_T](CoordinatorEntity[DenonAvrDataUpdateCoordin
                 await send()
             except DenonAvrError as err:
                 if isinstance(err, COMMAND_UNAVAILABLE_ON):
-                    # Status only: Audyssey follows it with Telnet down, or polls.
-                    # Marked here, it would outlast status until an Audyssey push.
+                    # Status only: settings follows it with Telnet down, or polls.
+                    # Marked here, it would outlast status until a settings push.
                     mark_unavailable(self._data.coordinator, err)
                 raise HomeAssistantError(
                     translation_domain=DOMAIN,
