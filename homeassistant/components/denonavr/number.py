@@ -11,12 +11,12 @@ from homeassistant.components.number import (
     NumberEntity,
     NumberEntityDescription,
 )
-from homeassistant.const import EntityCategory, UnitOfTime
+from homeassistant.const import EntityCategory, UnitOfSoundPressure, UnitOfTime
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
 from . import DenonavrConfigEntry
-from .entity import DenonAvrPendingValueEntity
+from .entity import DenonAvrPendingValueEntity, tone_control_available
 
 # Denon receivers do not handle concurrent requests reliably. Only
 # covers multi-entity calls - entity.py's shared lock covers the rest.
@@ -39,6 +39,20 @@ class DenonAvrNumberEntityDescription(NumberEntityDescription):
     # on "Update audio settings periodically"; everything else reads with
     # the status one.
     uses_settings_coordinator: bool = False
+    # See the matching field on DenonAvrSwitchEntityDescription.
+    follows_other_coordinator: bool = False
+
+
+# denonavr reports bass and treble on the receiver's raw 0..12 scale,
+# which sits 6 above the dB value the receiver itself displays.
+TONE_CONTROL_DB_OFFSET = 6
+
+
+def _tone_control_db(value: int | None) -> float | None:
+    """Convert a raw tone control value to the dB the receiver shows."""
+    if value is None:
+        return None
+    return value - TONE_CONTROL_DB_OFFSET
 
 
 NUMBER_TYPES: tuple[DenonAvrNumberEntityDescription, ...] = (
@@ -56,6 +70,38 @@ NUMBER_TYPES: tuple[DenonAvrNumberEntityDescription, ...] = (
         value_fn=lambda receiver: receiver.audio_delay,
         set_fn=lambda receiver, value: receiver.async_delay(round(value)),
         uses_settings_coordinator=True,
+    ),
+    DenonAvrNumberEntityDescription(
+        key="bass",
+        translation_key="bass",
+        native_unit_of_measurement=UnitOfSoundPressure.DECIBEL,
+        native_min_value=-6,
+        native_max_value=6,
+        native_step=1,
+        entity_category=EntityCategory.CONFIG,
+        # None until denonavr reads a value: the receiver can answer
+        # GetToneControl blank for long stretches, from setup on.
+        value_fn=lambda receiver: _tone_control_db(receiver.bass),
+        set_fn=lambda receiver, value: receiver.async_set_bass(
+            round(value) + TONE_CONTROL_DB_OFFSET
+        ),
+        available_fn=tone_control_available,
+        follows_other_coordinator=True,
+    ),
+    DenonAvrNumberEntityDescription(
+        key="treble",
+        translation_key="treble",
+        native_unit_of_measurement=UnitOfSoundPressure.DECIBEL,
+        native_min_value=-6,
+        native_max_value=6,
+        native_step=1,
+        entity_category=EntityCategory.CONFIG,
+        value_fn=lambda receiver: _tone_control_db(receiver.treble),
+        set_fn=lambda receiver, value: receiver.async_set_treble(
+            round(value) + TONE_CONTROL_DB_OFFSET
+        ),
+        available_fn=tone_control_available,
+        follows_other_coordinator=True,
     ),
 )
 
@@ -89,6 +135,7 @@ class DenonAvrNumber(DenonAvrPendingValueEntity[float], NumberEntity):
             else data.coordinator,
             config_entry,
             description.key,
+            follows_other_coordinator=description.follows_other_coordinator,
         )
         self.entity_description = description
 

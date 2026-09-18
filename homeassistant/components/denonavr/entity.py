@@ -1,4 +1,4 @@
-"""Shared base entity for Denon AVR setting entities.
+"""Shared entity base and availability helpers for Denon AVR entities.
 
 A command's value is shown optimistically, since the receiver can briefly
 still report the old one, and reconciled once it catches up. A timeout keeps
@@ -24,6 +24,8 @@ from .coordinator import (
     DenonAvrDataUpdateCoordinator,
     mark_unavailable,
 )
+
+_DIRECT_SOUND_MODES = ("DIRECT", "PURE DIRECT")
 
 
 def receiver_unique_id(config_entry: DenonavrConfigEntry, key: str) -> str:
@@ -51,7 +53,21 @@ def audyssey_available(receiver: DenonAVR) -> bool:
     Direct bypasses Audyssey: the receiver drops every Audyssey command there,
     while Telnet keeps reporting the stored values, so knowing them says nothing.
     """
-    return receiver.sound_mode not in ("DIRECT", "PURE DIRECT")
+    return receiver.sound_mode not in _DIRECT_SOUND_MODES
+
+
+def tone_control_available(receiver: DenonAVR) -> bool:
+    """Return whether bass, treble and the tone control toggle can be set.
+
+    Dynamic EQ freezes all three: the receiver answers the command and drops
+    it. `is not True` keeps them available while Dynamic EQ is still unknown.
+    Direct drops them too, over HTTP and Telnet alike, as it does Audyssey.
+    """
+    return (
+        bool(receiver.support_tone_control)
+        and receiver.dynamic_eq is not True
+        and receiver.sound_mode not in _DIRECT_SOUND_MODES
+    )
 
 
 class DenonAvrPendingValueEntity[_T](CoordinatorEntity[DenonAvrDataUpdateCoordinator]):
@@ -199,6 +215,6 @@ class DenonAvrPendingValueEntity[_T](CoordinatorEntity[DenonAvrDataUpdateCoordin
         self.async_write_ha_state()
 
         # Confirming through the coordinator rather than reading here also
-        # notifies every other entity sharing it, so one that derives its
-        # own state from this setting is not left behind.
+        # notifies every entity listening to it, including one on the other
+        # coordinator whose availability follows this setting.
         await self.coordinator.async_request_refresh()

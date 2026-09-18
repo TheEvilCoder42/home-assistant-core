@@ -39,6 +39,12 @@
     "number": {
       "audio_delay": {
         "name": "Audio delay"
+      },
+      "bass": {
+        "name": "Tone control bass"
+      },
+      "treble": {
+        "name": "Tone control treble"
       }
     },
     "select": {
@@ -106,6 +112,9 @@
       },
       "dynamic_eq": {
         "name": "Audyssey Dynamic EQ"
+      },
+      "tone_control": {
+        "name": "Tone control"
       }
     }
   },

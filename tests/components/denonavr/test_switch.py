@@ -506,3 +506,57 @@ async def test_set_auto_lip_sync(
     getattr(client, called).assert_awaited_once()
     getattr(client, not_called).assert_not_awaited()
     client.async_auto_lip_sync_toggle.assert_not_awaited()
+
+
+@pytest.mark.parametrize(
+    ("tone_control_adjust", "tone_control_status", "expected"),
+    [
+        pytest.param(True, False, STATE_ON, id="on_while_status_disagrees"),
+        pytest.param(False, True, STATE_OFF, id="off_while_status_disagrees"),
+    ],
+)
+async def test_tone_control_reflects_adjust_not_status(
+    hass: HomeAssistant,
+    client: MagicMock,
+    entity_registry: er.EntityRegistry,
+    tone_control_adjust: bool,
+    tone_control_status: bool,
+    expected: str,
+) -> None:
+    """The switch tracks tone_control_adjust, which is the field that follows the toggle."""
+    client.dynamic_eq = False
+    client.tone_control_adjust = tone_control_adjust
+    client.tone_control_status = tone_control_status
+    await setup_denonavr(hass)
+
+    entity_id = get_entity_id(entity_registry, SWITCH_DOMAIN, "tone_control")
+    assert hass.states.get(entity_id).state == expected
+
+
+@pytest.mark.parametrize(
+    ("service", "method"),
+    [
+        pytest.param(SERVICE_TURN_ON, "async_enable_tone_control", id="turn_on"),
+        pytest.param(SERVICE_TURN_OFF, "async_disable_tone_control", id="turn_off"),
+    ],
+)
+async def test_toggle_tone_control(
+    hass: HomeAssistant,
+    client: MagicMock,
+    entity_registry: er.EntityRegistry,
+    service: str,
+    method: str,
+) -> None:
+    """Toggling the switch enables or disables tone control on the receiver."""
+    client.dynamic_eq = False
+    await setup_denonavr(hass)
+    entity_id = get_entity_id(entity_registry, SWITCH_DOMAIN, "tone_control")
+
+    await hass.services.async_call(
+        SWITCH_DOMAIN,
+        service,
+        {ATTR_ENTITY_ID: entity_id},
+        blocking=True,
+    )
+
+    getattr(client, method).assert_awaited_once()

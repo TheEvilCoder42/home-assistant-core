@@ -12,7 +12,11 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
 from . import DenonavrConfigEntry
-from .entity import DenonAvrPendingValueEntity, audyssey_available
+from .entity import (
+    DenonAvrPendingValueEntity,
+    audyssey_available,
+    tone_control_available,
+)
 
 # Denon receivers do not handle concurrent requests reliably. Only
 # covers multi-entity calls - entity.py's shared lock covers the rest.
@@ -68,6 +72,21 @@ SWITCH_TYPES: tuple[DenonAvrSwitchEntityDescription, ...] = (
         # Without Telnet the value comes from GetAudioDelay, which only
         # this coordinator's request fetches.
         uses_settings_coordinator=True,
+    ),
+    DenonAvrSwitchEntityDescription(
+        key="tone_control",
+        translation_key="tone_control",
+        entity_category=EntityCategory.CONFIG,
+        # Not tone_control_status: the reference receiver reports both of its
+        # polarities wrongly, while adjust tracks the toggle faithfully.
+        is_on_fn=lambda receiver: receiver.tone_control_adjust,
+        set_fn=lambda receiver, on: (
+            receiver.async_enable_tone_control()
+            if on
+            else receiver.async_disable_tone_control()
+        ),
+        available_fn=tone_control_available,
+        follows_other_coordinator=True,
     ),
 )
 
