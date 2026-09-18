@@ -101,6 +101,9 @@
           "10db": "+10 dB",
           "15db": "+15 dB"
         }
+      },
+      "speaker_preset": {
+        "name": "Speaker preset"
       }
     },
     "switch": {
