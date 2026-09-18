@@ -29,6 +29,10 @@ COORDINATOR_UPDATE_INTERVAL = 10
 # Delay action-triggered refreshes so the receiver can settle and coalesce changes.
 ACTION_REFRESH_DEBOUNCE_COOLDOWN = 0.5
 
+# How long a change keeps moving other values. Measured on an AVR-X1700H:
+# everything a change moved had settled within ~4.3 s of the command.
+SETTLED_REFRESH_DELAY = 5
+
 # The event group the Audyssey settings and the audio delay arrive in.
 # __init__.py notifies the settings coordinator on it, whether or not
 # media_player is enabled.
