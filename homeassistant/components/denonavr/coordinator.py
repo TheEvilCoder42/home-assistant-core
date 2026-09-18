@@ -26,7 +26,7 @@ from homeassistant.core import CALLBACK_TYPE, HomeAssistant, callback
 from homeassistant.helpers.debounce import Debouncer
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
-from .const import ACTION_REFRESH_DEBOUNCE_COOLDOWN, DOMAIN
+from .const import ACTION_REFRESH_DEBOUNCE_COOLDOWN, DOMAIN, SETTLED_REFRESH_DELAY
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -172,6 +172,13 @@ class DenonAvrDataUpdateCoordinator(DataUpdateCoordinator[None]):
         self._force_refresh_lock = asyncio.Lock()
         self._forced_refresh_count = 0
         self._internal_listeners: list[CALLBACK_TYPE] = []
+        self._settled_refresh = Debouncer(
+            hass,
+            _LOGGER,
+            cooldown=SETTLED_REFRESH_DELAY,
+            immediate=False,
+            function=self.async_request_refresh,
+        )
 
     @property
     def polls(self) -> bool:
@@ -230,6 +237,23 @@ class DenonAvrDataUpdateCoordinator(DataUpdateCoordinator[None]):
         """Notify the entities, then the integration's own callbacks."""
         super().async_update_listeners()
         self._async_notify_internal_listeners()
+
+    @callback
+    def async_request_settled_refresh(self) -> None:
+        """Refresh once the receiver has carried out a change's side effects.
+
+        A read straight after the change catches it halfway, with the
+        subwoofer levels missing, say. Each request restarts the wait, so the
+        refresh follows the last of several changes rather than the first.
+        """
+        self._settled_refresh.async_cancel()
+        self._settled_refresh.async_schedule_call()
+
+    @override
+    async def async_shutdown(self) -> None:
+        """Also cancel a pending settled refresh."""
+        await super().async_shutdown()
+        self._settled_refresh.async_shutdown()
 
     async def async_refresh_forced(self) -> None:
         """Refresh immediately, bypassing the Telnet-healthy skip.

@@ -31,6 +31,7 @@ from homeassistant.components.denonavr.const import (
     ATTR_DYNAMIC_EQ,
     CONF_UPDATE_AUDYSSEY,
     CONF_USE_TELNET,
+    SETTLED_REFRESH_DELAY,
 )
 from homeassistant.components.denonavr.coordinator import mark_unavailable
 from homeassistant.components.denonavr.services import (
@@ -87,6 +88,7 @@ from . import (
     TEST_SERIALNUMBER,
     TEST_UNIQUE_ID,
     TEST_ZONE,
+    advance_time,
 )
 
 from tests.common import MockConfigEntry, async_fire_time_changed
@@ -590,6 +592,94 @@ async def test_simple_command_wrappers(
     )
 
     getattr(client, receiver_method).assert_awaited_once()
+
+
+@pytest.mark.parametrize(
+    ("service", "service_data"),
+    [
+        pytest.param(
+            SERVICE_SELECT_SOURCE, {ATTR_INPUT_SOURCE: "AUX"}, id="select_source"
+        ),
+        pytest.param(
+            SERVICE_SELECT_SOUND_MODE,
+            {ATTR_SOUND_MODE: "Music"},
+            id="select_sound_mode",
+        ),
+    ],
+)
+async def test_switching_command_rereads_status_once_settled(
+    hass: HomeAssistant,
+    client: MagicMock,
+    freezer: FrozenDateTimeFactory,
+    service: str,
+    service_data: dict[str, str],
+) -> None:
+    """A source or sound mode change is read again once the receiver has switched.
+
+    The confirming read straight after the command still gets the old value.
+    """
+    await setup_denonavr(hass)
+    await hass.services.async_call(
+        media_player.DOMAIN,
+        service,
+        {ATTR_ENTITY_ID: ENTITY_ID, **service_data},
+        blocking=True,
+    )
+    await advance_time(hass, freezer, 1)
+    reads = client.async_update.await_count
+
+    await advance_time(hass, freezer, SETTLED_REFRESH_DELAY - 2)
+    assert client.async_update.await_count == reads
+
+    # The settled request, then the action debounce behind it.
+    await advance_time(hass, freezer, 2)
+    await advance_time(hass, freezer, 1)
+    assert client.async_update.await_count == reads + 1
+
+
+@pytest.mark.parametrize(
+    ("service", "service_data", "receiver_method"),
+    [
+        pytest.param(
+            SERVICE_SELECT_SOURCE,
+            {ATTR_INPUT_SOURCE: "AUX"},
+            "async_set_input_func",
+            id="select_source",
+        ),
+        pytest.param(
+            SERVICE_SELECT_SOUND_MODE,
+            {ATTR_SOUND_MODE: "Music"},
+            "async_set_sound_mode",
+            id="select_sound_mode",
+        ),
+    ],
+)
+async def test_failed_switching_command_does_not_reread_status(
+    hass: HomeAssistant,
+    client: MagicMock,
+    freezer: FrozenDateTimeFactory,
+    service: str,
+    service_data: dict[str, str],
+    receiver_method: str,
+) -> None:
+    """Nothing changed on the receiver, so nothing is read again."""
+    await setup_denonavr(hass)
+    getattr(client, receiver_method).side_effect = AvrCommandError(
+        "Rejected", receiver_method
+    )
+    reads = client.async_update.await_count
+
+    with pytest.raises(HomeAssistantError):
+        await hass.services.async_call(
+            media_player.DOMAIN,
+            service,
+            {ATTR_ENTITY_ID: ENTITY_ID, **service_data},
+            blocking=True,
+        )
+    await advance_time(hass, freezer, SETTLED_REFRESH_DELAY + 1)
+    await advance_time(hass, freezer, 1)
+
+    assert client.async_update.await_count == reads
 
 
 @pytest.mark.parametrize(
