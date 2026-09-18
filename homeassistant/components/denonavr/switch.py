@@ -53,6 +53,22 @@ SWITCH_TYPES: tuple[DenonAvrSwitchEntityDescription, ...] = (
         uses_settings_coordinator=True,
         follows_other_coordinator=True,
     ),
+    DenonAvrSwitchEntityDescription(
+        key="auto_lip_sync",
+        translation_key="auto_lip_sync",
+        entity_category=EntityCategory.CONFIG,
+        is_on_fn=lambda receiver: receiver.auto_lip_sync,
+        # Not async_auto_lip_sync_toggle(): it inverts the last value read, so
+        # it raises while that is unknown and repeats a change not yet read back.
+        set_fn=lambda receiver, on: (
+            receiver.async_auto_lip_sync_on()
+            if on
+            else receiver.async_auto_lip_sync_off()
+        ),
+        # Without Telnet the value comes from GetAudioDelay, which only
+        # this coordinator's request fetches.
+        uses_settings_coordinator=True,
+    ),
 )
 
 

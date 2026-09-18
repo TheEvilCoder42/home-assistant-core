@@ -444,3 +444,65 @@ async def test_telnet_push_keeps_a_pending_settings_refresh(
     await wait_for_debounced_refresh(hass)
 
     assert client.async_update_settings.await_count == baseline_calls + 1
+
+
+async def test_auto_lip_sync_unavailable_when_unknown(
+    hass: HomeAssistant, client: MagicMock, entity_registry: er.EntityRegistry
+) -> None:
+    """A receiver that reports no Auto lip sync state gives unavailable, not off.
+
+    The receiver only reports it over Telnet or through GetAudioDelay,
+    so "no value yet" has to be distinguishable from "off".
+    """
+    client.auto_lip_sync = None
+    await setup_denonavr(hass)
+
+    entity_id = get_entity_id(entity_registry, SWITCH_DOMAIN, "auto_lip_sync")
+    state = hass.states.get(entity_id)
+    assert state
+    assert state.state == STATE_UNAVAILABLE
+
+
+@pytest.mark.parametrize(
+    ("service", "called", "not_called"),
+    [
+        pytest.param(
+            SERVICE_TURN_ON,
+            "async_auto_lip_sync_on",
+            "async_auto_lip_sync_off",
+            id="turn_on",
+        ),
+        pytest.param(
+            SERVICE_TURN_OFF,
+            "async_auto_lip_sync_off",
+            "async_auto_lip_sync_on",
+            id="turn_off",
+        ),
+    ],
+)
+async def test_set_auto_lip_sync(
+    hass: HomeAssistant,
+    client: MagicMock,
+    entity_registry: er.EntityRegistry,
+    service: str,
+    called: str,
+    not_called: str,
+) -> None:
+    """Each direction sends its own command, never the toggle.
+
+    async_auto_lip_sync_toggle() inverts the last value read, so it raises
+    while that is unknown and repeats a change not yet read back.
+    """
+    await setup_denonavr(hass)
+    entity_id = get_entity_id(entity_registry, SWITCH_DOMAIN, "auto_lip_sync")
+
+    await hass.services.async_call(
+        SWITCH_DOMAIN,
+        service,
+        {ATTR_ENTITY_ID: entity_id},
+        blocking=True,
+    )
+
+    getattr(client, called).assert_awaited_once()
+    getattr(client, not_called).assert_not_awaited()
+    client.async_auto_lip_sync_toggle.assert_not_awaited()
