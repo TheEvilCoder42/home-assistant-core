@@ -19,7 +19,7 @@ from . import (
 def client_fixture() -> Generator[MagicMock]:
     """Patch of client library for tests.
 
-    Every platform (media_player, select, switch) is set up alongside
+    Every platform (media_player, number, select, switch) is set up alongside
     whichever one a given test file targets, since they all share one
     config entry - so this always includes the Audyssey/device-setting
     attributes those platforms read, even for test files that don't
@@ -73,4 +73,6 @@ def client_fixture() -> Generator[MagicMock]:
         mock_client_class.return_value.eco_mode = "Auto"
         mock_client_class.return_value.dimmer = "Bright"
         mock_client_class.return_value.auto_standby = "OFF"
+        mock_client_class.return_value.audio_delay = 140
+        mock_client_class.return_value.auto_lip_sync = True
         yield mock_client_class.return_value
