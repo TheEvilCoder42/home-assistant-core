@@ -75,4 +75,10 @@ def client_fixture() -> Generator[MagicMock]:
         mock_client_class.return_value.auto_standby = "OFF"
         mock_client_class.return_value.audio_delay = 140
         mock_client_class.return_value.auto_lip_sync = True
+        mock_client_class.return_value.support_tone_control = True
+        mock_client_class.return_value.tone_control_status = True
+        mock_client_class.return_value.tone_control_adjust = True
+        # The raw 0..12 scale denonavr reports, +4dB and -4dB.
+        mock_client_class.return_value.bass = 10
+        mock_client_class.return_value.treble = 2
         yield mock_client_class.return_value

@@ -20,6 +20,7 @@ from homeassistant.const import (
     ATTR_ENTITY_ID,
     ATTR_UNIT_OF_MEASUREMENT,
     STATE_UNKNOWN,
+    UnitOfSoundPressure,
     UnitOfTime,
 )
 from homeassistant.core import HomeAssistant
@@ -140,3 +141,82 @@ async def test_audio_delay_unknown_after_input_source_change(
     await async_update_entity(hass, entity_id)
 
     assert hass.states.get(entity_id).state == STATE_UNKNOWN
+
+
+@pytest.mark.parametrize(
+    ("key", "expected"),
+    [
+        pytest.param("bass", "4", id="bass_above_zero"),
+        pytest.param("treble", "-4", id="treble_below_zero"),
+    ],
+)
+async def test_tone_control_state(
+    hass: HomeAssistant,
+    entity_registry: er.EntityRegistry,
+    client: MagicMock,
+    key: str,
+    expected: str,
+) -> None:
+    """Bass and treble report the dB the receiver shows, not its raw 0..12 value."""
+    client.dynamic_eq = False
+    await setup_denonavr(hass)
+
+    state = hass.states.get(_entity_id(entity_registry, key))
+    assert state
+    assert state.state == expected
+    assert state.attributes[ATTR_UNIT_OF_MEASUREMENT] == UnitOfSoundPressure.DECIBEL
+    assert state.attributes[ATTR_MIN] == -6
+    assert state.attributes[ATTR_MAX] == 6
+
+
+@pytest.mark.parametrize(
+    ("key", "method", "value", "expected"),
+    [
+        pytest.param("bass", "async_set_bass", 4, 10, id="bass_above_zero"),
+        pytest.param("bass", "async_set_bass", -6, 0, id="bass_at_the_minimum"),
+        pytest.param("treble", "async_set_treble", -4, 2, id="treble_below_zero"),
+        pytest.param("treble", "async_set_treble", 2.6, 9, id="treble_rounded"),
+    ],
+)
+async def test_set_tone_control(
+    hass: HomeAssistant,
+    entity_registry: er.EntityRegistry,
+    client: MagicMock,
+    key: str,
+    method: str,
+    value: float,
+    expected: int,
+) -> None:
+    """Setting bass or treble converts the dB back to the raw 0..12 scale."""
+    client.dynamic_eq = False
+    await setup_denonavr(hass)
+
+    await hass.services.async_call(
+        NUMBER_DOMAIN,
+        SERVICE_SET_VALUE,
+        {ATTR_ENTITY_ID: _entity_id(entity_registry, key), ATTR_VALUE: value},
+        blocking=True,
+    )
+
+    getattr(client, method).assert_awaited_once_with(expected)
+
+
+@pytest.mark.parametrize("key", ["bass", "treble"])
+async def test_tone_control_unknown_when_receiver_reports_no_value(
+    hass: HomeAssistant,
+    entity_registry: er.EntityRegistry,
+    client: MagicMock,
+    key: str,
+) -> None:
+    """An empty GetToneControl payload reads unknown, and must not raise.
+
+    The receiver answers with empty values for long stretches, which
+    denonavr surfaces as None - offsetting that would be a TypeError.
+    """
+    client.dynamic_eq = False
+    setattr(client, key, None)
+    await setup_denonavr(hass)
+
+    state = hass.states.get(_entity_id(entity_registry, key))
+    assert state
+    assert state.state == STATE_UNKNOWN

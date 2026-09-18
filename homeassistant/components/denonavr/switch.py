@@ -15,7 +15,7 @@ from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from . import DenonavrConfigEntry
 from .const import CONF_SERIAL_NUMBER, DOMAIN
 from .coordinator import DenonAvrDataUpdateCoordinator
-from .entity import DenonAvrPendingValueEntity
+from .entity import DenonAvrPendingValueEntity, tone_control_available
 
 # See the matching constant in select.py.
 PARALLEL_UPDATES = 1
@@ -31,6 +31,9 @@ class DenonAvrSwitchEntityDescription(SwitchEntityDescription):
     # DenonAvrSelect's fallback there's no description.name to fall back
     # to, since new descriptions carry a translation_key alone.
     error_label: str
+    # Whether the setting can currently be changed - see the matching
+    # field on DenonAvrSelectEntityDescription.
+    available_fn: Callable[[DenonAVR], bool] = lambda receiver: True
     # See the matching field on DenonAvrSelectEntityDescription.
     uses_settings_coordinator: bool = False
 
@@ -69,6 +72,22 @@ SWITCH_TYPES: tuple[DenonAvrSwitchEntityDescription, ...] = (
         # Without Telnet the value comes from GetAudioDelay, which only
         # this coordinator's request fetches.
         uses_settings_coordinator=True,
+    ),
+    DenonAvrSwitchEntityDescription(
+        key="tone_control",
+        translation_key="tone_control",
+        entity_category=EntityCategory.CONFIG,
+        # Not tone_control_status: that field reported both polarities
+        # wrongly on the reference receiver, while adjust tracks the
+        # toggle faithfully.
+        is_on_fn=lambda receiver: receiver.tone_control_adjust,
+        set_fn=lambda receiver, on: (
+            receiver.async_enable_tone_control()
+            if on
+            else receiver.async_disable_tone_control()
+        ),
+        error_label="Tone control",
+        available_fn=tone_control_available,
     ),
 )
 
@@ -136,12 +155,16 @@ class DenonAvrSwitch(DenonAvrPendingValueEntity[bool], SwitchEntity):
     @property
     @override
     def available(self) -> bool:
-        """Return whether the receiver reports a state for this setting.
+        """Return whether the receiver reports a settable state.
 
         Also False if the coordinator's last refresh failed - see
         DenonAvrSelect.available.
         """
-        return super().available and self._current_value is not None
+        return (
+            super().available
+            and self._current_value is not None
+            and self.entity_description.available_fn(self._receiver)
+        )
 
     @property
     @override

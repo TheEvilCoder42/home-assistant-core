@@ -39,6 +39,12 @@
     "number": {
       "audio_delay": {
         "name": "Audio delay"
+      },
+      "bass": {
+        "name": "Bass"
+      },
+      "treble": {
+        "name": "Treble"
       }
     },
     "select": {
@@ -67,6 +73,9 @@
       },
       "dynamic_eq": {
         "name": "Dynamic EQ"
+      },
+      "tone_control": {
+        "name": "Tone control"
       }
     }
   },

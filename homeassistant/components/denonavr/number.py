@@ -11,7 +11,7 @@ from homeassistant.components.number import (
     NumberEntity,
     NumberEntityDescription,
 )
-from homeassistant.const import EntityCategory, UnitOfTime
+from homeassistant.const import EntityCategory, UnitOfSoundPressure, UnitOfTime
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
@@ -19,7 +19,7 @@ from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from . import DenonavrConfigEntry
 from .const import CONF_SERIAL_NUMBER, DOMAIN
 from .coordinator import DenonAvrDataUpdateCoordinator
-from .entity import DenonAvrPendingValueEntity
+from .entity import DenonAvrPendingValueEntity, tone_control_available
 
 # See the matching constant in select.py.
 PARALLEL_UPDATES = 1
@@ -42,6 +42,18 @@ class DenonAvrNumberEntityDescription(NumberEntityDescription):
     uses_settings_coordinator: bool = False
 
 
+# denonavr reports bass and treble on the receiver's raw 0..12 scale,
+# which sits 6 above the dB value the receiver itself displays.
+TONE_CONTROL_DB_OFFSET = 6
+
+
+def _tone_control_db(value: int | None) -> float | None:
+    """Convert a raw tone control value to the dB the receiver shows."""
+    if value is None:
+        return None
+    return value - TONE_CONTROL_DB_OFFSET
+
+
 NUMBER_TYPES: tuple[DenonAvrNumberEntityDescription, ...] = (
     DenonAvrNumberEntityDescription(
         key="audio_delay",
@@ -58,6 +70,37 @@ NUMBER_TYPES: tuple[DenonAvrNumberEntityDescription, ...] = (
         value_fn=lambda receiver: receiver.audio_delay,
         set_fn=lambda receiver, value: receiver.async_delay(round(value)),
         uses_settings_coordinator=True,
+    ),
+    DenonAvrNumberEntityDescription(
+        key="bass",
+        translation_key="bass",
+        native_unit_of_measurement=UnitOfSoundPressure.DECIBEL,
+        native_min_value=-6,
+        native_max_value=6,
+        native_step=1,
+        entity_category=EntityCategory.CONFIG,
+        # Reads None while the receiver answers GetToneControl with an
+        # empty payload, which it can do for long stretches - the value
+        # is unknown then, not zero.
+        value_fn=lambda receiver: _tone_control_db(receiver.bass),
+        set_fn=lambda receiver, value: receiver.async_set_bass(
+            round(value) + TONE_CONTROL_DB_OFFSET
+        ),
+        available_fn=tone_control_available,
+    ),
+    DenonAvrNumberEntityDescription(
+        key="treble",
+        translation_key="treble",
+        native_unit_of_measurement=UnitOfSoundPressure.DECIBEL,
+        native_min_value=-6,
+        native_max_value=6,
+        native_step=1,
+        entity_category=EntityCategory.CONFIG,
+        value_fn=lambda receiver: _tone_control_db(receiver.treble),
+        set_fn=lambda receiver, value: receiver.async_set_treble(
+            round(value) + TONE_CONTROL_DB_OFFSET
+        ),
+        available_fn=tone_control_available,
     ),
 )
 

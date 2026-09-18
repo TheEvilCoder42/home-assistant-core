@@ -1,4 +1,4 @@
-"""Shared base entity for Denon AVR select/switch entities.
+"""Shared entity base and availability helpers for Denon AVR entities.
 
 Shows a value optimistically right after a command, since the
 receiver can briefly still report the old one on an immediate
@@ -9,6 +9,7 @@ timeout so a command that never applied doesn't mask reality forever).
 from collections.abc import Callable, Coroutine
 from typing import Any, override
 
+from denonavr import DenonAVR
 from denonavr.exceptions import DenonAvrError
 
 from homeassistant.core import callback
@@ -19,6 +20,17 @@ from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .const import PENDING_VALUE_TIMEOUT
 from .coordinator import UNAVAILABLE_ON, DenonAvrDataUpdateCoordinator, mark_unavailable
+
+
+def tone_control_available(receiver: DenonAVR) -> bool:
+    """Return whether bass, treble and the tone control toggle can be set.
+
+    Dynamic EQ freezes all three: the receiver answers the command and
+    drops it. `is not True` deliberately keeps them available while
+    Dynamic EQ is unknown - it comes from the settings coordinator, so
+    it is None until that has run at least once.
+    """
+    return bool(receiver.support_tone_control) and receiver.dynamic_eq is not True
 
 
 class DenonAvrPendingValueEntity[_T](CoordinatorEntity[DenonAvrDataUpdateCoordinator]):
