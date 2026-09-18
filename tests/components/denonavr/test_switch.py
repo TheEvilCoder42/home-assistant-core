@@ -8,7 +8,10 @@ import pytest
 
 from homeassistant.components.denonavr.config_flow import DOMAIN
 from homeassistant.components.denonavr.const import CONF_UPDATE_AUDYSSEY
-from homeassistant.components.denonavr.switch import DYNAMIC_EQ_DESCRIPTION
+from homeassistant.components.denonavr.switch import (
+    SWITCH_TYPES,
+    DenonAvrSwitchEntityDescription,
+)
 from homeassistant.components.select import DOMAIN as SELECT_DOMAIN
 from homeassistant.components.switch import DOMAIN as SWITCH_DOMAIN
 from homeassistant.const import (
@@ -57,10 +60,41 @@ def _entity_id(hass: HomeAssistant, domain: str, key: str) -> str:
     return entity_id
 
 
-async def test_has_a_fallback_name_if_translation_lookup_fails() -> None:
-    """Its description has a name and a translation_key for fallback."""
-    assert DYNAMIC_EQ_DESCRIPTION.name == "Dynamic EQ"
-    assert DYNAMIC_EQ_DESCRIPTION.translation_key == "dynamic_eq"
+@pytest.mark.parametrize(
+    "description", SWITCH_TYPES, ids=lambda description: description.key
+)
+def test_description_names_itself_through_translations(
+    description: DenonAvrSwitchEntityDescription,
+) -> None:
+    """Every description carries a translation key matching its entity key."""
+    assert description.translation_key == description.key
+
+
+def test_dynamic_eq_keeps_its_literal_fallback_name() -> None:
+    """Dynamic EQ names itself literally as well, as a translation fallback.
+
+    Unlike test_number.py's sweep this one can't assert no description
+    has a name: dropping Dynamic EQ's would rename the entity.
+    """
+    description = next(
+        description for description in SWITCH_TYPES if description.key == "dynamic_eq"
+    )
+    assert description.name == "Dynamic EQ"
+
+
+@pytest.mark.usefixtures("client")
+async def test_one_entity_per_description(
+    hass: HomeAssistant, entity_registry: er.EntityRegistry
+) -> None:
+    """The platform registers exactly the static descriptions, and nothing else."""
+    entry = await setup_denonavr(hass)
+
+    entries = er.async_entries_for_config_entry(entity_registry, entry.entry_id)
+    assert {
+        registry_entry.unique_id
+        for registry_entry in entries
+        if registry_entry.domain == SWITCH_DOMAIN
+    } == {f"{TEST_UNIQUE_ID}-{description.key}" for description in SWITCH_TYPES}
 
 
 async def test_dynamic_eq_state_on(hass: HomeAssistant, client: MagicMock) -> None:
