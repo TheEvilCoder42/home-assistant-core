@@ -138,13 +138,13 @@ async def test_audyssey_follows_direct_through_a_status_refresh(
     """Audyssey selects are unavailable in Direct, seen by a status refresh alone.
 
     Direct bypasses Audyssey and the receiver drops every command for it. The
-    sound mode is a status value and the Audyssey coordinator does not
+    sound mode is a status value and the settings coordinator does not
     refresh here, so the selects have to follow the status coordinator too.
     """
     entry = await setup_denonavr(hass)
     entity_id = get_entity_id(entity_registry, SELECT_DOMAIN, key)
     assert hass.states.get(entity_id).state == option
-    audyssey_reads = client.async_update_audyssey.await_count
+    settings_reads = client.async_update_settings.await_count
 
     client.sound_mode = sound_mode
     await entry.runtime_data.coordinator.async_refresh()
@@ -155,7 +155,7 @@ async def test_audyssey_follows_direct_through_a_status_refresh(
     await entry.runtime_data.coordinator.async_refresh()
     await hass.async_block_till_done()
     assert hass.states.get(entity_id).state == option
-    assert client.async_update_audyssey.await_count == audyssey_reads
+    assert client.async_update_settings.await_count == settings_reads
 
 
 async def test_multi_eq_options_follow_the_receiver(
@@ -276,7 +276,7 @@ async def test_select_option_raises_on_avr_error(
     """A receiver error while selecting is surfaced to the user.
 
     A connectivity failure marks the status coordinator, and with Telnet
-    down and no Audyssey poll of its own the Audyssey one follows. It is
+    down and no settings poll of its own the settings one follows. It is
     logged once, not once per coordinator.
     """
     entry = await setup_denonavr(hass)
@@ -293,7 +293,7 @@ async def test_select_option_raises_on_avr_error(
         == f"Setting {entity_id} to 5db failed on {TEST_HOST}: {error_message}"
     )
     assert entry.runtime_data.coordinator.last_update_success is available
-    assert entry.runtime_data.audyssey_coordinator.last_update_success is available
+    assert entry.runtime_data.settings_coordinator.last_update_success is available
     assert (hass.states.get(entity_id).state != STATE_UNAVAILABLE) is available
     assert caplog.text.count("Error requesting denonavr_") == logs
 
@@ -405,7 +405,7 @@ async def test_auto_standby_applies_while_any_zone_may_be_on(
         pytest.param(
             "reference_level_offset",
             "5db",
-            "async_update_audyssey",
+            "async_update_settings",
             id="reference_level_offset",
         ),
     ],
@@ -421,8 +421,8 @@ async def test_select_option_confirms_with_one_read(
     """Selecting an option confirms it with exactly one read.
 
     should_poll=False, so HA adds no post-call poll of its own. An Audyssey
-    setting confirms too: "Update Audyssey settings" governs the recurring
-    poll alone, and it is off by default.
+    setting confirms too: "Update audio settings periodically" governs the
+    recurring poll alone, and it is off by default.
     """
     await setup_denonavr(hass)
     entity_id = get_entity_id(entity_registry, SELECT_DOMAIN, key)
@@ -438,7 +438,7 @@ async def test_select_option_confirms_with_one_read(
 async def test_coordinators_serialize_command_and_refresh(
     hass: HomeAssistant, client: MagicMock, entity_registry: er.EntityRegistry
 ) -> None:
-    """A select action and an Audyssey refresh on the shared lock don't overlap.
+    """A select action and a settings refresh on the shared lock don't overlap.
 
     Running a command concurrently with a refresh on the other coordinator
     proves the shared lock serializes them, which asserting that the two
@@ -455,22 +455,22 @@ async def test_coordinators_serialize_command_and_refresh(
         client.dimmer = option
         call_order.append("end-dimmer")
 
-    async def _slow_audyssey_update(*args: object, **kwargs: object) -> None:
-        call_order.append("start-audyssey")
+    async def _slow_settings_update(*args: object, **kwargs: object) -> None:
+        call_order.append("start-settings")
         await asyncio.sleep(0.05)
-        call_order.append("end-audyssey")
+        call_order.append("end-settings")
 
     client.async_dimmer.side_effect = _slow_dimmer_set
-    client.async_update_audyssey.side_effect = _slow_audyssey_update
+    client.async_update_settings.side_effect = _slow_settings_update
 
     await asyncio.gather(
         _select_option(hass, entity_id, "dark"),
-        entry.runtime_data.audyssey_coordinator.async_refresh(),
+        entry.runtime_data.settings_coordinator.async_refresh(),
     )
 
     assert call_order in (
-        ["start-dimmer", "end-dimmer", "start-audyssey", "end-audyssey"],
-        ["start-audyssey", "end-audyssey", "start-dimmer", "end-dimmer"],
+        ["start-dimmer", "end-dimmer", "start-settings", "end-settings"],
+        ["start-settings", "end-settings", "start-dimmer", "end-dimmer"],
     )
 
 
@@ -528,7 +528,7 @@ async def test_rapid_consecutive_selections_do_not_race(
 @pytest.mark.parametrize(
     ("key", "event", "attribute", "value", "state"),
     [
-        pytest.param("multi_eq", "PS", "multi_eq", "Flat", "flat", id="audyssey"),
+        pytest.param("multi_eq", "PS", "multi_eq", "Flat", "flat", id="settings"),
         pytest.param("dimmer", "DIM", "dimmer", "Dark", "dark", id="status"),
     ],
 )
@@ -616,8 +616,8 @@ async def test_audyssey_entities_not_unavailable_on_fresh_setup(
     """Audyssey-dependent entities aren't unavailable after a fresh setup.
 
     Nothing in the regular poll loop fetches Audyssey data unless
-    "Update Audyssey settings" is on - without the one-time initial
-    fetch, these entities (reference_level_offset especially, since it
+    "Update audio settings periodically" is on - without the one-time
+    initial fetch, these entities (reference_level_offset especially, since it
     also gates on dynamic_eq) would stay unavailable indefinitely.
     """
     client.dynamic_eq = None
@@ -625,13 +625,13 @@ async def test_audyssey_entities_not_unavailable_on_fresh_setup(
     client.dynamic_volume = None
     client.multi_eq = None
 
-    async def _populate_audyssey(*args: object, **kwargs: object) -> None:
+    async def _populate_settings(*args: object, **kwargs: object) -> None:
         client.dynamic_eq = True
         client.reference_level_offset = "0dB"
         client.dynamic_volume = "Off"
         client.multi_eq = "Reference"
 
-    client.async_update_audyssey.side_effect = _populate_audyssey
+    client.async_update_settings.side_effect = _populate_settings
 
     # The option's default.
     await setup_denonavr(hass, options={CONF_UPDATE_AUDYSSEY: False})
@@ -761,7 +761,7 @@ async def test_expiries_of_settings_changed_together_share_one_refresh(
 ) -> None:
     """Settings that expire together must not each read the receiver.
 
-    Every one of these reads is a full Audyssey round trip, and a refresh
+    Every one of these reads is a full settings round trip, and a refresh
     already running when the next expiry fires started well after the
     command that expiry gave up on, so it confirms that one too.
     """
@@ -777,24 +777,24 @@ async def test_expiries_of_settings_changed_together_share_one_refresh(
     # the count below covers the two expiries alone. The receiver never
     # reports the new values, so both stay pending.
     await advance_time(hass, freezer, 1)
-    calls_after_actions = client.async_update_audyssey.await_count
+    calls_after_actions = client.async_update_settings.await_count
 
     async def _suspending_update(*args: object, **kwargs: object) -> None:
         # Yields so the second expiry arrives while the first is still
         # refreshing; without it the mock never suspends.
         await asyncio.sleep(0)
 
-    client.async_update_audyssey.side_effect = _suspending_update
+    client.async_update_settings.side_effect = _suspending_update
 
     await advance_time(hass, freezer, PENDING_VALUE_TIMEOUT + 1)
 
-    assert client.async_update_audyssey.await_count == calls_after_actions + 1
+    assert client.async_update_settings.await_count == calls_after_actions + 1
 
 
 @pytest.mark.parametrize(
     ("key", "command", "option", "event"),
     [
-        pytest.param("multi_eq", "async_set_multieq", "flat", "PS", id="audyssey"),
+        pytest.param("multi_eq", "async_set_multieq", "flat", "PS", id="settings"),
         pytest.param("dimmer", "async_dimmer", "dark", "DIM", id="status"),
     ],
 )
@@ -810,8 +810,8 @@ async def test_telnet_update_clears_a_connectivity_failure(
 ) -> None:
     """A Telnet push has to restore availability, not only notify listeners.
 
-    With "Update Audyssey settings" off the Audyssey coordinator has no poll
-    of its own, and with polling disabled neither has, so notifying alone
+    With "Update audio settings periodically" off the settings coordinator has
+    no poll of its own, and with polling disabled neither has, so notifying alone
     would leave these entities unavailable while Telnet keeps them current.
     """
     await setup_denonavr(hass, options={CONF_UPDATE_AUDYSSEY: False})
@@ -835,7 +835,7 @@ async def test_toggling_switch_updates_dependent_select(
 ) -> None:
     """Toggling Audyssey Dynamic EQ off also updates Audyssey reference level offset.
 
-    Both entities share the Audyssey coordinator, so the one refresh
+    Both entities share the settings coordinator, so the one refresh
     confirming the switch's action notifies the select too.
     """
     await setup_denonavr(hass)
@@ -850,7 +850,7 @@ async def test_toggling_switch_updates_dependent_select(
         client.dynamic_eq = False
 
     client.async_dynamic_eq_off.side_effect = _turn_off
-    audyssey_reads = client.async_update_audyssey.await_count
+    settings_reads = client.async_update_settings.await_count
 
     await hass.services.async_call(
         SWITCH_DOMAIN,
@@ -860,6 +860,6 @@ async def test_toggling_switch_updates_dependent_select(
     )
     await wait_for_debounced_refresh(hass)
 
-    assert client.async_update_audyssey.await_count == audyssey_reads + 1
+    assert client.async_update_settings.await_count == settings_reads + 1
     assert hass.states.get(switch_entity_id).state == STATE_OFF
     assert hass.states.get(select_entity_id).state == STATE_UNAVAILABLE

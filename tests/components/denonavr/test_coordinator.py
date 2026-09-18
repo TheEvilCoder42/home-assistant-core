@@ -20,7 +20,7 @@ from homeassistant.components.denonavr.const import (
 )
 from homeassistant.components.denonavr.coordinator import (
     DenonAvrDataUpdateCoordinator,
-    async_refresh_audyssey,
+    async_refresh_settings,
     async_refresh_status,
     mark_unavailable,
 )
@@ -36,7 +36,7 @@ REFRESH_FUNCTIONS = pytest.mark.parametrize(
     ("refresh", "update_method"),
     [
         pytest.param(async_refresh_status, "async_update", id="status"),
-        pytest.param(async_refresh_audyssey, "async_update_audyssey", id="audyssey"),
+        pytest.param(async_refresh_settings, "async_update_settings", id="settings"),
     ],
 )
 
@@ -48,11 +48,11 @@ def _receiver_with_zones() -> tuple[MagicMock, MagicMock]:
     main.telnet_connected = False
     main.telnet_healthy = False
     main.async_update = AsyncMock()
-    main.async_update_audyssey = AsyncMock()
+    main.async_update_settings = AsyncMock()
     zone2 = MagicMock()
     zone2.zone = "Zone2"
     zone2.async_update = AsyncMock()
-    zone2.async_update_audyssey = AsyncMock()
+    zone2.async_update_settings = AsyncMock()
     main.zones = {"Main": main, "Zone2": zone2}
     return main, zone2
 
@@ -124,24 +124,24 @@ async def test_refresh_stops_every_zone_on_a_connectivity_error(
     getattr(zone2, update_method).assert_not_awaited()
 
 
-async def test_audyssey_refresh_tolerates_a_receiver_without_audyssey() -> None:
+async def test_settings_refresh_tolerates_a_receiver_without_audyssey() -> None:
     """A receiver that does not know the query answers it short.
 
     denonavr tolerates the AvrProcessingError form of that but not this one,
     and a missing feature is not an unreachable receiver.
     """
     main, zone2 = _receiver_with_zones()
-    main.async_update_audyssey.side_effect = AvrIncompleteResponseError(
+    main.async_update_settings.side_effect = AvrIncompleteResponseError(
         "Invalid length of response XML", "test"
     )
 
-    await async_refresh_audyssey(main)
+    await async_refresh_settings(main)
 
-    zone2.async_update_audyssey.assert_awaited_once()
+    zone2.async_update_settings.assert_awaited_once()
 
 
 async def test_status_refresh_still_fails_on_an_incomplete_response() -> None:
-    """Only the Audyssey query carries a tag a receiver may not know."""
+    """Only the settings query carries a tag a receiver may not know."""
     main, zone2 = _receiver_with_zones()
     main.async_update.side_effect = AvrIncompleteResponseError(
         "Invalid length of response XML", "test"
@@ -273,17 +273,17 @@ async def test_removing_an_internal_listener_stops_its_updates(
 
 
 @pytest.mark.parametrize(
-    ("options", "audyssey_available"),
+    ("options", "settings_available"),
     [
-        pytest.param({}, False, id="audyssey_has_no_poll"),
-        pytest.param({CONF_UPDATE_AUDYSSEY: True}, True, id="audyssey_polls"),
+        pytest.param({}, False, id="settings_has_no_poll"),
+        pytest.param({CONF_UPDATE_AUDYSSEY: True}, True, id="settings_polls"),
     ],
 )
-async def test_general_failure_reaches_audyssey_only_where_it_cannot_read(
+async def test_general_failure_reaches_settings_only_where_it_cannot_read(
     hass: HomeAssistant,
     client: MagicMock,
     options: dict[str, bool],
-    audyssey_available: bool,
+    settings_available: bool,
 ) -> None:
     """Without a poll of its own it has to be handed the verdict.
 
@@ -297,15 +297,15 @@ async def test_general_failure_reaches_audyssey_only_where_it_cannot_read(
     await entry.runtime_data.coordinator.async_refresh()
 
     assert (
-        entry.runtime_data.audyssey_coordinator.last_update_success
-        is audyssey_available
+        entry.runtime_data.settings_coordinator.last_update_success
+        is settings_available
     )
 
 
-async def test_audyssey_coordinator_polls_when_option_on(
+async def test_settings_coordinator_polls_when_option_on(
     hass: HomeAssistant, client: MagicMock, freezer: FrozenDateTimeFactory
 ) -> None:
-    """The Audyssey coordinator actually polls on a schedule when the option is on.
+    """The settings coordinator actually polls on a schedule when the option is on.
 
     Exercises the real behavior (a call once the interval elapses)
     rather than just asserting update_interval was set, which would
@@ -313,19 +313,19 @@ async def test_audyssey_coordinator_polls_when_option_on(
     were broken.
     """
     await setup_denonavr(hass, options={CONF_UPDATE_AUDYSSEY: True})
-    calls_before = client.async_update_audyssey.await_count
+    calls_before = client.async_update_settings.await_count
 
     freezer.tick(timedelta(seconds=COORDINATOR_UPDATE_INTERVAL + 1))
     async_fire_time_changed(hass)
     await hass.async_block_till_done()
 
-    assert client.async_update_audyssey.await_count > calls_before
+    assert client.async_update_settings.await_count > calls_before
 
 
-async def test_audyssey_coordinator_skips_poll_when_telnet_healthy(
+async def test_settings_coordinator_skips_poll_when_telnet_healthy(
     hass: HomeAssistant, client: MagicMock, freezer: FrozenDateTimeFactory
 ) -> None:
-    """A scheduled Audyssey poll is skipped once Telnet already keeps it current.
+    """A scheduled settings poll is skipped once Telnet already keeps it current.
 
     Mirrors async_refresh_status's own guard for the general
     coordinator - Telnet already pushes these settings live (see
@@ -335,33 +335,33 @@ async def test_audyssey_coordinator_skips_poll_when_telnet_healthy(
     await setup_denonavr(hass, options={CONF_UPDATE_AUDYSSEY: True})
     client.telnet_connected = True
     client.telnet_healthy = True
-    calls_before = client.async_update_audyssey.await_count
+    calls_before = client.async_update_settings.await_count
 
     freezer.tick(timedelta(seconds=COORDINATOR_UPDATE_INTERVAL + 1))
     async_fire_time_changed(hass)
     await hass.async_block_till_done()
 
-    assert client.async_update_audyssey.await_count == calls_before
+    assert client.async_update_settings.await_count == calls_before
 
 
-async def test_audyssey_coordinator_does_not_poll_when_option_off(
+async def test_settings_coordinator_does_not_poll_when_option_off(
     hass: HomeAssistant, client: MagicMock, freezer: FrozenDateTimeFactory
 ) -> None:
-    """Without the option the Audyssey coordinator does not poll on a schedule.
+    """Without the option the settings coordinator does not poll on a schedule.
 
     It still refreshes on demand, such as right after an action.
     """
     await setup_denonavr(hass, options={CONF_UPDATE_AUDYSSEY: False})
-    calls_before = client.async_update_audyssey.await_count
+    calls_before = client.async_update_settings.await_count
 
     freezer.tick(timedelta(seconds=COORDINATOR_UPDATE_INTERVAL + 1))
     async_fire_time_changed(hass)
     await hass.async_block_till_done()
 
-    assert client.async_update_audyssey.await_count == calls_before
+    assert client.async_update_settings.await_count == calls_before
 
 
-async def test_audyssey_poll_needs_an_entity_not_just_internal_wiring(
+async def test_settings_poll_needs_an_entity_not_just_internal_wiring(
     hass: HomeAssistant, client: MagicMock, freezer: FrozenDateTimeFactory
 ) -> None:
     """The cross-coordinator wiring alone must not keep the poll running.
@@ -371,10 +371,10 @@ async def test_audyssey_poll_needs_an_entity_not_just_internal_wiring(
     """
     with patch("homeassistant.components.denonavr.PLATFORMS", []):
         await setup_denonavr(hass, options={CONF_UPDATE_AUDYSSEY: True})
-        calls_before = client.async_update_audyssey.await_count
+        calls_before = client.async_update_settings.await_count
 
         freezer.tick(timedelta(seconds=COORDINATOR_UPDATE_INTERVAL + 1))
         async_fire_time_changed(hass)
         await hass.async_block_till_done()
 
-    assert client.async_update_audyssey.await_count == calls_before
+    assert client.async_update_settings.await_count == calls_before

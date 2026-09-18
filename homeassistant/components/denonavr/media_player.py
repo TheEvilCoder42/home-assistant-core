@@ -36,7 +36,7 @@ from .coordinator import (
     COMMAND_UNAVAILABLE_ON,
     UNAVAILABLE_ON,
     DenonAvrDataUpdateCoordinator,
-    async_update_zone_audyssey,
+    async_update_zone_settings,
     mark_available,
     mark_unavailable,
 )
@@ -87,7 +87,7 @@ async def async_setup_entry(
     entities = [
         DenonDevice(
             data.coordinator,
-            data.audyssey_coordinator,
+            data.settings_coordinator,
             receiver_zone,
             receiver_unique_id(config_entry, receiver_zone.zone),
             config_entry,
@@ -160,14 +160,14 @@ class DenonDevice(CoordinatorEntity[DenonAvrDataUpdateCoordinator], MediaPlayerE
     def __init__(
         self,
         coordinator: DenonAvrDataUpdateCoordinator,
-        audyssey_coordinator: DenonAvrDataUpdateCoordinator,
+        settings_coordinator: DenonAvrDataUpdateCoordinator,
         receiver: DenonAVR,
         unique_id: str,
         config_entry: DenonavrConfigEntry,
     ) -> None:
         """Initialize the device."""
         super().__init__(coordinator)
-        self._audyssey_coordinator = audyssey_coordinator
+        self._settings_coordinator = settings_coordinator
         self._attr_unique_id = unique_id
         self._attr_device_info = DeviceInfo(
             configuration_url=f"http://{config_entry.data[CONF_HOST]}/",
@@ -191,9 +191,9 @@ class DenonDevice(CoordinatorEntity[DenonAvrDataUpdateCoordinator], MediaPlayerE
         """Register for coordinator updates."""
         await super().async_added_to_hass()
         # super() subscribes to the status coordinator only, but dynamic_eq
-        # is Audyssey-scoped and would otherwise go stale.
+        # comes from the settings coordinator and would otherwise go stale.
         self.async_on_remove(
-            self._audyssey_coordinator.async_add_listener(
+            self._settings_coordinator.async_add_listener(
                 self._handle_coordinator_update
             )
         )
@@ -203,7 +203,7 @@ class DenonDevice(CoordinatorEntity[DenonAvrDataUpdateCoordinator], MediaPlayerE
         """Refresh now, so update_entity returns after the read.
 
         Skipped while Telnet is healthy. Reads every zone once per targeted
-        entity: unlike the Audyssey query, status reads are fast.
+        entity: unlike the settings query, status reads are fast.
         """
         if not self.enabled:
             return
@@ -411,18 +411,18 @@ class DenonDevice(CoordinatorEntity[DenonAvrDataUpdateCoordinator], MediaPlayerE
 
     @async_handle_command
     async def async_update_audyssey(self) -> None:
-        """Get the latest audyssey information from device.
+        """Get the latest Audyssey settings and audio delay from the device.
 
         This zone alone, not through the coordinator: as an entity service
         it is already called once per zone, so refreshing every zone each
         time would square these slow queries.
         """
         try:
-            await async_update_zone_audyssey(self._receiver)
+            await async_update_zone_settings(self._receiver)
         except UNAVAILABLE_ON as err:
-            # Audyssey-scoped, so that coordinator's data is suspect too. Both
+            # Settings-scoped, so that coordinator's data is suspect too. Both
             # are marked here, not by the decorator: a read's 403 counts.
-            mark_unavailable(self._audyssey_coordinator, err)
+            mark_unavailable(self._settings_coordinator, err)
             mark_unavailable(self.coordinator, err)
             raise HomeAssistantError(
                 translation_domain=DOMAIN,
@@ -436,7 +436,7 @@ class DenonDevice(CoordinatorEntity[DenonAvrDataUpdateCoordinator], MediaPlayerE
         # coordinator's next read, and refreshes dynamic_eq. Not
         # async_set_updated_data(): that cancels the refresh set_dynamic_eq
         # queued, which reads the other zones while Telnet is down.
-        mark_available(self._audyssey_coordinator)
+        mark_available(self._settings_coordinator)
 
     @async_handle_command
     async def async_set_dynamic_eq(self, dynamic_eq: bool) -> None:
@@ -444,7 +444,7 @@ class DenonDevice(CoordinatorEntity[DenonAvrDataUpdateCoordinator], MediaPlayerE
         # The main zone's power even on a zone's player: Dynamic EQ follows it.
         raise_if_powered_off(self.coordinator.receiver, self.entity_id)
         # A connectivity failure marks status alone, through the decorator:
-        # marked here, Audyssey would outlast status until an Audyssey push.
+        # marked here, settings would outlast status until a settings push.
         if dynamic_eq:
             await self._receiver.async_dynamic_eq_on()
         else:
@@ -454,4 +454,4 @@ class DenonDevice(CoordinatorEntity[DenonAvrDataUpdateCoordinator], MediaPlayerE
         # decorator's lock: async_request_refresh() only schedules. It skips
         # while Telnet is healthy: the PS echo confirms this zone, and the
         # other zones' copies wait for their next read.
-        await self._audyssey_coordinator.async_request_refresh()
+        await self._settings_coordinator.async_request_refresh()
