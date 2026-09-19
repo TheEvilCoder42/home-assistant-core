@@ -1,6 +1,13 @@
 {
   "entity": {
-    "number": {},
+    "number": {
+      "volume": {
+        "default": "mdi:volume-medium"
+      },
+      "zone_volume": {
+        "default": "mdi:volume-medium"
+      }
+    },
     "select": {
       "auto_standby": {
         "default": "mdi:timer-outline"

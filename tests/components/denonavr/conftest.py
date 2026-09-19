@@ -5,7 +5,7 @@ from collections.abc import Callable, Generator
 from unittest.mock import MagicMock, create_autospec, patch
 
 from denonavr import DenonAVR
-from denonavr.const import ALL_TELNET_EVENTS, POWER_ON, ZONE2
+from denonavr.const import ALL_TELNET_EVENTS, POWER_ON, ZONE2, ZONE3
 import pytest
 
 from . import (
@@ -105,6 +105,12 @@ def _add_zone(client: MagicMock, zone: str) -> MagicMock:
 def zone2_client_fixture(client: MagicMock) -> MagicMock:
     """Give the mocked receiver a Zone 2, and return that zone's object."""
     return _add_zone(client, ZONE2)
+
+
+@pytest.fixture(name="zone3_client")
+def zone3_client_fixture(client: MagicMock) -> MagicMock:
+    """Give the mocked receiver a Zone 3, and return that zone's object."""
+    return _add_zone(client, ZONE3)
 
 
 @pytest.fixture
