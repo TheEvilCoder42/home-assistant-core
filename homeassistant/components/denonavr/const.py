@@ -35,6 +35,9 @@ ACTION_REFRESH_DEBOUNCE_COOLDOWN = 0.5
 # Audyssey coordinator on it, whether or not media_player is enabled.
 AUDYSSEY_TELNET_EVENT = "PS"
 
+# The receiver's dB display is its 0-98 step scale minus 80, so MV00 is -80.0.
+VOLUME_MIN = -80.0
+
 # The zone number in the name of a secondary zone's entities. The word
 # "Zone" stays in the translated string; the main zone's entities have no number.
 ZONE_NUMBERS = {ZONE2: "2", ZONE3: "3"}
