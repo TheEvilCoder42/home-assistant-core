@@ -9,6 +9,7 @@ status refresh.
 import asyncio
 from datetime import timedelta
 import logging
+import time
 from typing import Protocol, override
 
 from denonavr import DenonAVR
@@ -70,14 +71,16 @@ async def async_refresh_status(receiver: DenonAVR, *, force: bool = False) -> No
             )
 
 
-async def async_update_zone_settings(zone_receiver: DenonAVR) -> None:
+async def async_update_zone_settings(
+    zone_receiver: DenonAVR, cache_id: float | None = None
+) -> None:
     """Read one zone's AppCommand0300 settings.
 
     A receiver without Audyssey answers the query short, which is a missing
     feature rather than an unreachable receiver.
     """
     try:
-        await zone_receiver.async_update_settings()
+        await zone_receiver.async_update_settings(cache_id=cache_id)
     except AvrIncompleteResponseError as err:
         _LOGGER.debug(
             "No Audyssey data for zone %s for %s: %s",
@@ -94,15 +97,20 @@ async def async_refresh_settings(receiver: DenonAVR, *, force: bool = False) -> 
     denonavr fetches both in one request.
 
     async_update_settings() only updates the zone it is called on, so Zone2
-    and Zone3 need their own fetch. Skipped while Telnet is healthy unless
+    and Zone3 need their own call. Skipped while Telnet is healthy unless
     force=True: Telnet never pushes on connect, and unlike status, which
     receiver.py reads before connecting, nothing else fetches this at setup.
+
+    One cache id covers the loop: the AppCommand0300 body carries no zone, so
+    every zone would otherwise post the same bytes for the same answer. It has
+    to be new each refresh or the zones are handed the settings from last time.
     """
     if not force and receiver.telnet_connected and receiver.telnet_healthy:
         return
+    cache_id = time.monotonic()
     for zone_receiver in receiver.zones.values():
         try:
-            await async_update_zone_settings(zone_receiver)
+            await async_update_zone_settings(zone_receiver, cache_id)
         except UNAVAILABLE_ON:
             raise
         except DenonAvrError as err:

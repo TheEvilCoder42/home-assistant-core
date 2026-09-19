@@ -68,6 +68,35 @@ async def test_refresh_reaches_every_zone(
     getattr(zone2, update_method).assert_awaited_once()
 
 
+async def test_async_refresh_settings_shares_one_cache_id() -> None:
+    """The zones' refreshes cost one request between them, not one each.
+
+    The AppCommand0300 body carries no zone, so denonavr answers the
+    later zones out of the first zone's request when they are all given
+    the same cache id.
+    """
+    main, zone2 = _receiver_with_zones()
+
+    await async_refresh_settings(main)
+
+    main_cache_id = main.async_update_settings.await_args.kwargs["cache_id"]
+    zone2_cache_id = zone2.async_update_settings.await_args.kwargs["cache_id"]
+    assert main_cache_id is not None
+    assert zone2_cache_id == main_cache_id
+
+
+async def test_async_refresh_settings_uses_a_new_cache_id_each_refresh() -> None:
+    """A reused cache id would hand the zones the settings from last time."""
+    main, _ = _receiver_with_zones()
+
+    await async_refresh_settings(main)
+    first = main.async_update_settings.await_args.kwargs["cache_id"]
+    await async_refresh_settings(main)
+    second = main.async_update_settings.await_args.kwargs["cache_id"]
+
+    assert first != second
+
+
 @REFRESH_FUNCTIONS
 async def test_refresh_skips_every_zone_when_telnet_healthy(
     refresh: Callable[..., Awaitable[None]], update_method: str
