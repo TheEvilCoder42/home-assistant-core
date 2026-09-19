@@ -109,6 +109,9 @@
       },
       "dynamic_eq": {
         "name": "Audyssey Dynamic EQ"
+      },
+      "subwoofer": {
+        "name": "Subwoofer output"
       }
     }
   },

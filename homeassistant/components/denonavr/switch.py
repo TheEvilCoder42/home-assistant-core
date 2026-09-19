@@ -69,6 +69,21 @@ SWITCH_TYPES: tuple[DenonAvrSwitchEntityDescription, ...] = (
         # this coordinator's request fetches.
         uses_settings_coordinator=True,
     ),
+    DenonAvrSwitchEntityDescription(
+        key="subwoofer",
+        translation_key="subwoofer",
+        entity_category=EntityCategory.CONFIG,
+        is_on_fn=lambda receiver: receiver.subwoofer,
+        # A write is ignored outside Stereo or with an LFE channel, which only
+        # HTTP reports; with Telnet up, only the update_audyssey action re-reads it.
+        available_fn=lambda receiver: receiver.subwoofer_adjustable is True,
+        # Not async_subwoofer_toggle(): it inverts the cached value, and a
+        # turn_on against a stale True would send OFF.
+        set_fn=lambda receiver, on: (
+            receiver.async_subwoofer_on() if on else receiver.async_subwoofer_off()
+        ),
+        uses_settings_coordinator=True,
+    ),
 )
 
 

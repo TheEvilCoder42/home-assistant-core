@@ -208,10 +208,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: DenonavrConfigEntry) -> 
 
         The receiver stores the audio delay and some Audyssey settings per
         source, and denonavr forgets the delay on a change. Whether the LFE
-        level can be set follows the sound mode and the stream: the raw mode,
-        since the matched one is the same for streams with and without an LFE
-        channel. Without the periodic poll nothing would read them again.
-        Settled, because the receiver takes a few seconds to switch.
+        level and the subwoofer output can be set follows the sound mode and
+        the stream: the raw mode, since the matched one is the same for
+        streams with and without an LFE channel. Without the periodic poll
+        nothing would read them again. Settled, because the receiver takes a
+        few seconds to switch.
         """
         nonlocal requested_for
         watched = _watched()
