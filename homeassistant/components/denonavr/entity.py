@@ -6,7 +6,7 @@ a command that never applied from masking reality forever.
 """
 
 from collections.abc import Callable, Coroutine
-from typing import Any, override
+from typing import TYPE_CHECKING, Any, override
 
 from denonavr import DenonAVR
 from denonavr.exceptions import DenonAvrError
@@ -17,13 +17,16 @@ from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.event import async_call_later
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-from . import DenonavrConfigEntry
 from .const import CONF_SERIAL_NUMBER, DOMAIN, PENDING_VALUE_TIMEOUT
 from .coordinator import (
     COMMAND_UNAVAILABLE_ON,
     DenonAvrDataUpdateCoordinator,
     mark_unavailable,
 )
+
+if TYPE_CHECKING:
+    # __init__.py imports receiver_unique_id from here.
+    from . import DenonavrConfigEntry
 
 
 def receiver_unique_id(config_entry: DenonavrConfigEntry, key: str) -> str:

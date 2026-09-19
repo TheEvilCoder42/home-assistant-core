@@ -6,7 +6,7 @@ from datetime import timedelta
 import logging
 
 from denonavr import DenonAVR
-from denonavr.const import ALL_TELNET_EVENTS
+from denonavr.const import ALL_TELNET_EVENTS, ZONE2, ZONE3
 from denonavr.exceptions import DenonAvrError
 
 from homeassistant.config_entries import ConfigEntry
@@ -40,6 +40,7 @@ from .coordinator import (
     mark_available,
     mark_unavailable,
 )
+from .entity import receiver_unique_id
 from .receiver import ConnectDenonAVR
 from .services import async_setup_services
 
@@ -259,14 +260,19 @@ async def async_unload_entry(
     # Remove zone2 and zone3 entities if needed
     entity_registry = er.async_get(hass)
     entries = er.async_entries_for_config_entry(entity_registry, config_entry.entry_id)
-    unique_id = config_entry.unique_id or config_entry.entry_id
-    zone2_id = f"{unique_id}-Zone2"
-    zone3_id = f"{unique_id}-Zone3"
+    zone2_id = receiver_unique_id(config_entry, ZONE2)
+    zone3_id = receiver_unique_id(config_entry, ZONE3)
+    # startswith, not equality: a zone has a media player whose unique_id
+    # ends there, and an entity per zone-scoped setting below it.
     for entry in entries:
-        if entry.unique_id == zone2_id and not config_entry.options.get(CONF_ZONE2):
+        if entry.unique_id.startswith(zone2_id) and not config_entry.options.get(
+            CONF_ZONE2
+        ):
             entity_registry.async_remove(entry.entity_id)
             _LOGGER.debug("Removing zone2 from DenonAvr")
-        if entry.unique_id == zone3_id and not config_entry.options.get(CONF_ZONE3):
+        if entry.unique_id.startswith(zone3_id) and not config_entry.options.get(
+            CONF_ZONE3
+        ):
             entity_registry.async_remove(entry.entity_id)
             _LOGGER.debug("Removing zone3 from DenonAvr")
 
