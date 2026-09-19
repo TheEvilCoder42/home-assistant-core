@@ -5,12 +5,15 @@ from dataclasses import dataclass
 from typing import Any, override
 
 from denonavr import DenonAVR
+from denonavr.const import VOLUME_TELNET_HALF_STEP
 
 from homeassistant.components.number import NumberEntity, NumberEntityDescription
+from homeassistant.const import UnitOfSoundPressure
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
 from . import DenonavrConfigEntry
+from .const import VOLUME_MIN, ZONE_NAMES
 from .entity import DenonAvrPendingValueEntity
 
 # Denon receivers do not handle concurrent requests reliably. Only
@@ -39,6 +42,32 @@ class DenonAvrNumberEntityDescription(NumberEntityDescription):
 NUMBER_TYPES: tuple[DenonAvrNumberEntityDescription, ...] = ()
 
 
+def _volume_description(zone: str) -> DenonAvrNumberEntityDescription:
+    """Describe the volume entity for one of the receiver's zones.
+
+    On the receiver's own scale, unlike media_player's 0..1 one, and capped
+    at the configured limit so the top of the range is always accepted.
+    """
+    zone_name = ZONE_NAMES.get(zone)
+    # Half steps on the main zone only: the secondary zones move in whole
+    # decibels on either transport.
+    step = 0.5 if VOLUME_TELNET_HALF_STEP[zone] else 1.0
+    return DenonAvrNumberEntityDescription(
+        key=f"{zone}-volume",
+        translation_key="volume" if zone_name is None else "zone_volume",
+        translation_placeholders=None if zone_name is None else {"zone": zone_name},
+        entity_registry_enabled_default=False,
+        # No device class: SOUND_PRESSURE is a measured level and this is a
+        # relative setting, the same reading lyngdorf's trims take.
+        native_unit_of_measurement=UnitOfSoundPressure.DECIBEL,
+        native_min_value=VOLUME_MIN,
+        native_step=step,
+        value_fn=lambda receiver: receiver.volume,
+        set_fn=lambda receiver, value: receiver.async_set_volume(value),
+        max_value_fn=lambda receiver: receiver.max_volume,
+    )
+
+
 async def async_setup_entry(
     hass: HomeAssistant,
     config_entry: DenonavrConfigEntry,
@@ -47,6 +76,10 @@ async def async_setup_entry(
     """Set up the DenonAVR number entities from a config entry."""
     async_add_entities(
         DenonAvrNumber(config_entry, description) for description in NUMBER_TYPES
+    )
+    async_add_entities(
+        DenonAvrNumber(config_entry, _volume_description(zone), zone_receiver)
+        for zone, zone_receiver in config_entry.runtime_data.receiver.zones.items()
     )
 
 
@@ -59,6 +92,7 @@ class DenonAvrNumber(DenonAvrPendingValueEntity[float], NumberEntity):
         self,
         config_entry: DenonavrConfigEntry,
         description: DenonAvrNumberEntityDescription,
+        receiver: DenonAVR | None = None,
     ) -> None:
         """Initialize the number entity."""
         data = config_entry.runtime_data
@@ -68,6 +102,7 @@ class DenonAvrNumber(DenonAvrPendingValueEntity[float], NumberEntity):
             else data.coordinator,
             config_entry,
             description.key,
+            receiver,
         )
         self.entity_description = description
 

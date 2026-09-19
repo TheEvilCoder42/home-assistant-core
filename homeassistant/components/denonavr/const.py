@@ -36,6 +36,9 @@ ACTION_REFRESH_DEBOUNCE_COOLDOWN = 0.5
 # media_player is enabled.
 SETTINGS_TELNET_EVENT = "PS"
 
+# The receiver's dB display is its 0-98 step scale minus 80, so MV00 is -80.0.
+VOLUME_MIN = -80.0
+
 # How a secondary zone is spelled in the name of an entity that has
 # one per zone. The main zone's entities are named without it.
 ZONE_NAMES = {ZONE2: "Zone 2", ZONE3: "Zone 3"}
