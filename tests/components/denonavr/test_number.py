@@ -2,7 +2,7 @@
 
 from unittest.mock import MagicMock, patch
 
-from denonavr.exceptions import AvrCommandError
+from denonavr.exceptions import AvrCommandError, AvrNetworkError
 import pytest
 from syrupy.assertion import SnapshotAssertion
 
@@ -38,6 +38,11 @@ pytestmark = pytest.mark.usefixtures("fast_action_refresh_debounce")
 ONE_SUBWOOFER = {"Subwoofer": 0.0}
 TWO_SUBWOOFERS = {"Subwoofer": 0.0, "Subwoofer 2": -1.5}
 
+# Measured on the AVR-X1700H: stereo playing reports the front pair and
+# the subwoofer, and a surround mode adds the centre channel on top.
+STEREO_CHANNELS = {"Front Left": 0.0, "Front Right": -1.5, "Subwoofer": 2.0}
+SURROUND_CHANNELS = STEREO_CHANNELS | {"Center": 1.0}
+
 
 def _reporting(client: MagicMock, levels: dict[str, float]) -> None:
     """Make the receiver report exactly these subwoofer levels."""
@@ -45,10 +50,16 @@ def _reporting(client: MagicMock, levels: dict[str, float]) -> None:
     client.subwoofer_level.side_effect = levels.get
 
 
-def _subwoofer_unique_ids(
-    entity_registry: er.EntityRegistry, entry_id: str
+def _reporting_channels(client: MagicMock, levels: dict[str, float]) -> None:
+    """Make the receiver report exactly these channel levels."""
+    client.channel_volumes = levels
+    client.channel_volume.side_effect = levels.get
+
+
+def _dynamic_unique_ids(
+    entity_registry: er.EntityRegistry, entry_id: str, key_prefix: str
 ) -> list[str]:
-    """Return the subwoofer level unique_ids, in registration order.
+    """Return the dynamic unique_ids with one key prefix, in registration order.
 
     Filtered rather than compared whole: other number entities register on
     the same entry.
@@ -59,10 +70,11 @@ def _subwoofer_unique_ids(
             entity_registry, entry_id
         )
         if registry_entry.domain == NUMBER_DOMAIN
-        and "-subwoofer_level_" in registry_entry.unique_id
+        and registry_entry.unique_id.startswith(f"{TEST_UNIQUE_ID}-{key_prefix}")
     ]
 
 
+@pytest.mark.usefixtures("entity_registry_enabled_by_default")
 async def test_entities(
     hass: HomeAssistant,
     entity_registry: er.EntityRegistry,
@@ -72,6 +84,7 @@ async def test_entities(
     """Test the number entities and their registry entries."""
     # An idle receiver reports no levels, which would leave nothing to snapshot.
     _reporting(client, TWO_SUBWOOFERS)
+    _reporting_channels(client, STEREO_CHANNELS)
     with patch("homeassistant.components.denonavr.PLATFORMS", [Platform.NUMBER]):
         entry = await setup_denonavr(hass)
 
@@ -111,7 +124,7 @@ async def test_subwoofer_levels_are_created_from_what_the_receiver_reports(
     _reporting(client, TWO_SUBWOOFERS)
     entry = await setup_denonavr(hass)
 
-    assert _subwoofer_unique_ids(entity_registry, entry.entry_id) == [
+    assert _dynamic_unique_ids(entity_registry, entry.entry_id, "subwoofer_level_") == [
         f"{TEST_UNIQUE_ID}-subwoofer_level_1",
         f"{TEST_UNIQUE_ID}-subwoofer_level_2",
     ]
@@ -154,7 +167,7 @@ async def test_a_subwoofer_is_not_added_twice(
     await entry.runtime_data.coordinator.async_refresh()
     await hass.async_block_till_done()
 
-    assert _subwoofer_unique_ids(entity_registry, entry.entry_id) == [
+    assert _dynamic_unique_ids(entity_registry, entry.entry_id, "subwoofer_level_") == [
         f"{TEST_UNIQUE_ID}-subwoofer_level_1"
     ]
 
@@ -261,3 +274,205 @@ async def test_set_subwoofer_level(
     )
 
     client.async_set_subwoofer_level.assert_awaited_once_with("Subwoofer", expected)
+
+
+async def test_channel_levels_are_created_from_what_the_receiver_reports(
+    hass: HomeAssistant, entity_registry: er.EntityRegistry, client: MagicMock
+) -> None:
+    """One entity per channel the receiver names, and none for the rest.
+
+    denonavr knows 34 channel names; a 3.1 receiver playing stereo
+    reports three of them.
+    """
+    _reporting_channels(client, STEREO_CHANNELS)
+    entry = await setup_denonavr(hass)
+
+    assert _dynamic_unique_ids(entity_registry, entry.entry_id, "channel_level_") == [
+        f"{TEST_UNIQUE_ID}-channel_level_front_left",
+        f"{TEST_UNIQUE_ID}-channel_level_front_right",
+        f"{TEST_UNIQUE_ID}-channel_level_subwoofer",
+    ]
+
+
+@pytest.mark.usefixtures("entity_registry_enabled_by_default")
+async def test_a_channel_appearing_later_gets_an_entity(
+    hass: HomeAssistant, entity_registry: er.EntityRegistry, client: MagicMock
+) -> None:
+    """The readable set follows what is playing, so it can't be built at setup.
+
+    Switching from stereo to a surround mode is what adds the centre
+    channel; nothing about the receiver's speaker layout announces it
+    beforehand.
+    """
+    _reporting_channels(client, STEREO_CHANNELS)
+    entry = await setup_denonavr(hass)
+    assert (
+        entity_registry.async_get_entity_id(
+            NUMBER_DOMAIN, DOMAIN, f"{TEST_UNIQUE_ID}-channel_level_center"
+        )
+        is None
+    )
+
+    _reporting_channels(client, SURROUND_CHANNELS)
+    await entry.runtime_data.coordinator.async_refresh()
+    await hass.async_block_till_done()
+
+    state = hass.states.get(
+        get_entity_id(entity_registry, NUMBER_DOMAIN, "channel_level_center")
+    )
+    assert state
+    assert state.state == "1.0"
+
+
+async def test_a_channel_appearing_later_is_registered_disabled(
+    hass: HomeAssistant, entity_registry: er.EntityRegistry, client: MagicMock
+) -> None:
+    """A newly reported channel is registered, disabled, and gets no state.
+
+    Channel levels are disabled by default, so the listener's add must still
+    create the registry entry for the user to enable.
+    """
+    _reporting_channels(client, STEREO_CHANNELS)
+    entry = await setup_denonavr(hass)
+
+    _reporting_channels(client, SURROUND_CHANNELS)
+    await entry.runtime_data.coordinator.async_refresh()
+    await hass.async_block_till_done()
+
+    entity_id = get_entity_id(entity_registry, NUMBER_DOMAIN, "channel_level_center")
+    registry_entry = entity_registry.async_get(entity_id)
+    assert registry_entry
+    assert registry_entry.disabled_by is er.RegistryEntryDisabler.INTEGRATION
+    assert hass.states.get(entity_id) is None
+
+
+async def test_a_channel_is_not_added_twice(
+    hass: HomeAssistant, entity_registry: er.EntityRegistry, client: MagicMock
+) -> None:
+    """Every refresh reports the same channels again; only the first adds them."""
+    _reporting_channels(client, STEREO_CHANNELS)
+    entry = await setup_denonavr(hass)
+
+    await entry.runtime_data.coordinator.async_refresh()
+    await hass.async_block_till_done()
+
+    assert _dynamic_unique_ids(entity_registry, entry.entry_id, "channel_level_") == [
+        f"{TEST_UNIQUE_ID}-channel_level_front_left",
+        f"{TEST_UNIQUE_ID}-channel_level_front_right",
+        f"{TEST_UNIQUE_ID}-channel_level_subwoofer",
+    ]
+
+
+@pytest.mark.usefixtures("entity_registry_enabled_by_default")
+async def test_a_channel_dropping_out_stays_unknown_rather_than_disappearing(
+    hass: HomeAssistant, entity_registry: er.EntityRegistry, client: MagicMock
+) -> None:
+    """A channel that stops being reported stays and reads unknown.
+
+    The set empties whenever playback stops, and the receiver then drops a
+    write without an error, so unknown is the honest state.
+    """
+    _reporting_channels(client, STEREO_CHANNELS)
+    entry = await setup_denonavr(hass)
+    entity_id = get_entity_id(
+        entity_registry, NUMBER_DOMAIN, "channel_level_front_left"
+    )
+
+    _reporting_channels(client, {})
+    await entry.runtime_data.coordinator.async_refresh()
+    await hass.async_block_till_done()
+
+    assert hass.states.get(entity_id).state == STATE_UNKNOWN
+
+
+@pytest.mark.parametrize(
+    ("error", "available", "error_message"),
+    [
+        pytest.param(
+            AvrCommandError("refused", "CV"), True, "refused", id="rejected_command"
+        ),
+        pytest.param(
+            AvrNetworkError("Connection refused", "CV"),
+            False,
+            "Connection refused",
+            id="unreachable_receiver",
+        ),
+    ],
+)
+@pytest.mark.usefixtures("entity_registry_enabled_by_default")
+async def test_set_channel_level_raises_on_avr_error(
+    hass: HomeAssistant,
+    entity_registry: er.EntityRegistry,
+    client: MagicMock,
+    error: Exception,
+    available: bool,
+    error_message: str,
+) -> None:
+    """A receiver error surfaces rather than leaving an optimistic value.
+
+    A connectivity failure also marks the settings coordinator: these
+    entities are on the status one, and the settings data can't be trusted
+    either once the receiver is unreachable.
+    """
+    _reporting_channels(client, STEREO_CHANNELS)
+    entry = await setup_denonavr(hass)
+    entity_id = get_entity_id(
+        entity_registry, NUMBER_DOMAIN, "channel_level_front_left"
+    )
+    client.async_channel_volume.side_effect = error
+
+    with pytest.raises(HomeAssistantError) as err:
+        await hass.services.async_call(
+            NUMBER_DOMAIN,
+            SERVICE_SET_VALUE,
+            {ATTR_ENTITY_ID: entity_id, ATTR_VALUE: 3},
+            blocking=True,
+        )
+
+    assert err.value.translation_key == "set_failed"
+    assert (
+        str(err.value)
+        == f"Setting {entity_id} to 3.0 dB failed on {TEST_HOST}: {error_message}"
+    )
+    assert entry.runtime_data.coordinator.last_update_success is available
+    assert entry.runtime_data.settings_coordinator.last_update_success is available
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        pytest.param(3, 3.0, id="whole_decibel"),
+        pytest.param(-1.5, -1.5, id="half_decibel"),
+        pytest.param(2.4, 2.5, id="rounded_to_the_nearest_half_decibel"),
+    ],
+)
+@pytest.mark.usefixtures("entity_registry_enabled_by_default")
+async def test_set_channel_level(
+    hass: HomeAssistant,
+    entity_registry: er.EntityRegistry,
+    client: MagicMock,
+    value: float,
+    expected: float,
+) -> None:
+    """Setting a level sends the channel's own name and a value in dB.
+
+    denonavr maps the dB value onto the receiver's scale and rejects
+    anything off the half-decibel grid outright, so an in-between value
+    is rounded rather than refused.
+    """
+    _reporting_channels(client, STEREO_CHANNELS)
+    await setup_denonavr(hass)
+
+    await hass.services.async_call(
+        NUMBER_DOMAIN,
+        SERVICE_SET_VALUE,
+        {
+            ATTR_ENTITY_ID: get_entity_id(
+                entity_registry, NUMBER_DOMAIN, "channel_level_front_left"
+            ),
+            ATTR_VALUE: value,
+        },
+        blocking=True,
+    )
+
+    client.async_channel_volume.assert_awaited_once_with("Front Left", expected)

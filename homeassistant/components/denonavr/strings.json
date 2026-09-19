@@ -37,6 +37,9 @@
   },
   "entity": {
     "number": {
+      "channel_level": {
+        "name": "Channel level {channel}"
+      },
       "subwoofer_level": {
         "name": "Subwoofer {subwoofer} level adjust"
       }
