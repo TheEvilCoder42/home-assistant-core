@@ -464,7 +464,7 @@ async def test_coordinators_serialize_command_and_refresh(
         client.dimmer = option
         call_order.append("end-dimmer")
 
-    async def _slow_audyssey_update() -> None:
+    async def _slow_audyssey_update(*_args: object, **_kwargs: object) -> None:
         call_order.append("start-audyssey")
         await asyncio.sleep(0.05)
         call_order.append("end-audyssey")

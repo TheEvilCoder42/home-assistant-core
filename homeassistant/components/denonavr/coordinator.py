@@ -8,6 +8,7 @@ always-on and opt-in, which "Update Audyssey settings" requires.
 import asyncio
 from datetime import timedelta
 import logging
+import time
 from typing import Protocol, override
 
 from denonavr import DenonAVR
@@ -85,6 +86,12 @@ async def async_refresh_settings(receiver: DenonAVR, *, force: bool = False) -> 
     matching receiver.py's Telnet-setup fetch and async_refresh_status's
     own per-zone loop.
 
+    One cache id covers the whole loop, so those per-zone updates cost
+    one request between them: the AppCommand0300 body carries no zone,
+    so every zone would otherwise post the same bytes and be handed the
+    same document back. A value that is new each refresh, or the zones
+    would be handed the settings as they were last time.
+
     Skips the HTTP poll if Telnet is already healthy and keeping
     everything current, for the same reason and in the same
     all-zones-at-once way as async_refresh_status's matching guard -
@@ -95,9 +102,10 @@ async def async_refresh_settings(receiver: DenonAVR, *, force: bool = False) -> 
     """
     if not force and receiver.telnet_connected and receiver.telnet_healthy:
         return
+    cache_id = time.monotonic()
     for zone_receiver in receiver.zones.values():
         try:
-            await zone_receiver.async_update_settings()
+            await zone_receiver.async_update_settings(cache_id=cache_id)
         except UNAVAILABLE_ON:
             raise
         except DenonAvrError as err:
