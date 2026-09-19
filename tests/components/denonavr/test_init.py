@@ -296,6 +296,8 @@ async def _wait_out_settled_refresh(
     [
         pytest.param("input_func", "TV-Box", 0, id="same_source"),
         pytest.param("input_func", "Blu-ray", 1, id="new_source"),
+        pytest.param("sound_mode_raw", "Stereo", 0, id="same_sound_mode"),
+        pytest.param("sound_mode_raw", "DOLBY AUDIO-DD+ +DSUR", 1, id="new_sound_mode"),
     ],
 )
 async def test_change_rereads_settings_once_settled(
@@ -306,12 +308,15 @@ async def test_change_rereads_settings_once_settled(
     value: str,
     reads: int,
 ) -> None:
-    """A source change re-reads the settings: the audio delay is per source.
+    """A source or sound mode change re-reads the settings.
 
-    Not straight away: the receiver takes a few seconds to switch. The value
-    read at setup is the baseline rather than a change.
+    The audio delay is per source, and whether the LFE level can be set
+    follows the sound mode. Not straight away: the receiver takes a few
+    seconds to switch. The value read at setup is the baseline rather than a
+    change.
     """
     client.input_func = "TV-Box"
+    client.sound_mode_raw = "Stereo"
     entry = await setup_denonavr(hass)
     settings_reads = client.async_update_settings.await_count
 
@@ -474,6 +479,126 @@ async def test_settings_read_after_input_change_needs_no_reread(
     await _wait_out_settled_refresh(hass, freezer)
 
     assert client.async_update_settings.await_count == settings_reads
+
+
+async def test_change_rereads_settings_with_telnet_healthy(
+    hass: HomeAssistant,
+    client: MagicMock,
+    freezer: FrozenDateTimeFactory,
+    fire_telnet_event: Callable[[str, str, str], None],
+) -> None:
+    """The re-read after a change reads even while Telnet is healthy.
+
+    Telnet never reports some of what the change moves, such as whether the
+    stream takes an LFE change. Later pushes of the same source do not
+    ask again.
+    """
+    client.telnet_connected = True
+    client.telnet_healthy = True
+    client.input_func = "TV-Box"
+    await setup_denonavr(hass)
+    settings_reads = client.async_update_settings.await_count
+
+    client.input_func = "Blu-ray"
+    fire_telnet_event("Main", "SI", "BD")
+    await _wait_out_settled_refresh(hass, freezer)
+    assert client.async_update_settings.await_count == settings_reads + 1
+
+    fire_telnet_event("Main", "SI", "BD")
+    await _wait_out_settled_refresh(hass, freezer)
+    assert client.async_update_settings.await_count == settings_reads + 1
+
+
+async def test_skipped_settings_refresh_does_not_count_as_a_read(
+    hass: HomeAssistant,
+    client: MagicMock,
+    freezer: FrozenDateTimeFactory,
+    fire_telnet_event: Callable[[str, str, str], None],
+) -> None:
+    """A settings refresh skipped under Telnet leaves the change its re-read.
+
+    As a periodic poll does when it lands between the change and the push
+    reporting it.
+    """
+    client.telnet_connected = True
+    client.telnet_healthy = True
+    client.input_func = "TV-Box"
+    entry = await setup_denonavr(hass)
+    settings_reads = client.async_update_settings.await_count
+
+    client.input_func = "Blu-ray"
+    await entry.runtime_data.settings_coordinator.async_refresh()
+    assert client.async_update_settings.await_count == settings_reads
+
+    fire_telnet_event("Main", "SI", "BD")
+    await _wait_out_settled_refresh(hass, freezer)
+    assert client.async_update_settings.await_count == settings_reads + 1
+
+
+async def test_skipped_settings_refresh_keeps_the_wait(
+    hass: HomeAssistant,
+    client: MagicMock,
+    freezer: FrozenDateTimeFactory,
+    fire_telnet_event: Callable[[str, str, str], None],
+) -> None:
+    """A settings refresh skipped within the wait does not restart it.
+
+    It read nothing, so the push after it must not request the re-read again.
+    """
+    client.telnet_connected = True
+    client.telnet_healthy = True
+    client.input_func = "TV-Box"
+    entry = await setup_denonavr(hass)
+    settings_reads = client.async_update_settings.await_count
+
+    client.input_func = "Blu-ray"
+    fire_telnet_event("Main", "SI", "BD")
+    await advance_time(hass, freezer, 3)
+    await entry.runtime_data.settings_coordinator.async_refresh()
+    assert client.async_update_settings.await_count == settings_reads
+
+    await advance_time(hass, freezer, 1)
+    fire_telnet_event("Main", "MV", "50")
+    await advance_time(hass, freezer, SETTLED_REFRESH_DELAY - 4)
+    assert client.async_update_settings.await_count == settings_reads + 1
+
+
+async def test_settled_settings_read_does_not_join_one_in_flight(
+    hass: HomeAssistant,
+    client: MagicMock,
+    freezer: FrozenDateTimeFactory,
+    fire_telnet_event: Callable[[str, str, str], None],
+) -> None:
+    """The settled read after a change waits out a forced read, then reads.
+
+    That one started before the change settled, so it saw the old sound mode
+    or the receiver halfway through switching.
+    """
+    client.telnet_connected = True
+    client.telnet_healthy = True
+    client.sound_mode_raw = "Stereo"
+    entry = await setup_denonavr(hass)
+    settings_reads = client.async_update_settings.await_count
+    release = asyncio.Event()
+
+    async def _held_read(*args: object, **kwargs: object) -> None:
+        await release.wait()
+
+    client.async_update_settings.side_effect = _held_read
+    in_flight = hass.async_create_task(
+        entry.runtime_data.settings_coordinator.async_refresh_forced()
+    )
+    client.sound_mode_raw = "DOLBY AUDIO-DD+ +DSUR"
+    fire_telnet_event("Main", "MS", "DOLBY AUDIO-DD+ +DSUR")
+    # Not advance_time(): its async_block_till_done() would wait on the read
+    # held here. The settled read starts eagerly and queues on the lock.
+    freezer.tick(timedelta(seconds=SETTLED_REFRESH_DELAY))
+    async_fire_time_changed(hass)
+    release.set()
+    await in_flight
+    await hass.async_block_till_done()
+
+    assert client.async_update_settings.await_count == settings_reads + 2
 
 
 # Integrations may leave timers behind by default; this test is about one.

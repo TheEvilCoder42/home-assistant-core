@@ -364,6 +364,8 @@ class DenonDevice(CoordinatorEntity[DenonAvrDataUpdateCoordinator], MediaPlayerE
     async def async_select_sound_mode(self, sound_mode: str) -> None:
         """Select sound mode."""
         await self._receiver.async_set_sound_mode(sound_mode)
+        # As with a source change, the confirming read comes too early.
+        self.coordinator.async_request_settled_refresh()
 
     @async_handle_command
     @override

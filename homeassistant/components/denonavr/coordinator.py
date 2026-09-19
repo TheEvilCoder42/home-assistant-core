@@ -8,6 +8,7 @@ status refresh.
 
 import asyncio
 from datetime import timedelta
+from functools import partial
 import logging
 import time
 from typing import Protocol, override
@@ -90,7 +91,7 @@ async def async_update_zone_settings(
         )
 
 
-async def async_refresh_settings(receiver: DenonAVR, *, force: bool = False) -> None:
+async def async_refresh_settings(receiver: DenonAVR, *, force: bool = False) -> bool:
     """Refresh the AppCommand0300 settings for every configured zone.
 
     That payload carries the Audyssey settings and the audio delay, and
@@ -104,9 +105,16 @@ async def async_refresh_settings(receiver: DenonAVR, *, force: bool = False) -> 
     One cache id covers the loop: the AppCommand0300 body carries no zone, so
     every zone would otherwise post the same bytes for the same answer. It has
     to be new each refresh or the zones are handed the settings from last time.
+
+    The surround parameters ride the same request. They are read again after
+    the loop, for a library whose async_update_settings() does not read them:
+    the loop's cache id makes that free, but only after the loop, as the cache
+    answers from a completed request, not from one still in flight.
+
+    Returns whether it read rather than skipped.
     """
     if not force and receiver.telnet_connected and receiver.telnet_healthy:
-        return
+        return False
     cache_id = time.monotonic()
     for zone_receiver in receiver.zones.values():
         try:
@@ -120,10 +128,21 @@ async def async_refresh_settings(receiver: DenonAVR, *, force: bool = False) -> 
                 receiver.name,
                 err,
             )
+    try:
+        await receiver.async_update_surround_parameters(
+            global_update=True, cache_id=cache_id
+        )
+    except UNAVAILABLE_ON:
+        raise
+    except DenonAvrError as err:
+        _LOGGER.debug(
+            "Error refreshing the surround parameters for %s: %s", receiver.name, err
+        )
+    return True
 
 
 class _RefreshFn(Protocol):
-    """Callback signature shared by async_refresh_status/async_refresh_settings.
+    """Callback signature of async_refresh_status and _refresh_settings in __init__.py.
 
     Raises only UNAVAILABLE_ON; any other DenonAvrError is handled per zone.
     """
@@ -150,6 +169,8 @@ class DenonAvrDataUpdateCoordinator(DataUpdateCoordinator[None]):
         name: str,
         update_interval: timedelta | None,
         refresh_fn: _RefreshFn,
+        *,
+        force_settled_refresh: bool = False,
     ) -> None:
         """Initialize the coordinator with a shared receiver lock.
 
@@ -186,7 +207,11 @@ class DenonAvrDataUpdateCoordinator(DataUpdateCoordinator[None]):
             _LOGGER,
             cooldown=SETTLED_REFRESH_DELAY,
             immediate=False,
-            function=self.async_request_refresh,
+            function=(
+                partial(self.async_refresh_forced, join=False)
+                if force_settled_refresh
+                else self.async_request_refresh
+            ),
         )
 
     @property
@@ -256,12 +281,13 @@ class DenonAvrDataUpdateCoordinator(DataUpdateCoordinator[None]):
         await super().async_shutdown()
         self._settled_refresh.async_shutdown()
 
-    async def async_refresh_forced(self) -> None:
+    async def async_refresh_forced(self, *, join: bool = True) -> None:
         """Refresh immediately, bypassing the Telnet-healthy skip.
 
         Overlapping callers join the refresh in flight. Sound for a pending
         value, which outlives a refresh: one still running when the expiry
-        fires started well after the command it has to confirm.
+        fires started well after the command it has to confirm. join=False is
+        for a caller that needs a read started after its own call.
 
         Its own lock, not the receiver's: async_refresh() reaches the
         debouncer lock only after the bypass flag is set, so concurrent
@@ -270,7 +296,7 @@ class DenonAvrDataUpdateCoordinator(DataUpdateCoordinator[None]):
         """
         joined = self._forced_refresh_count
         async with self._force_refresh_lock:
-            if self._forced_refresh_count != joined:
+            if join and self._forced_refresh_count != joined:
                 return
             self._force_next_refresh = True
             try:
