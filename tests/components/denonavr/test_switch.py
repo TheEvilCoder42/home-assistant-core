@@ -687,7 +687,10 @@ async def test_set_auto_lip_sync(
 
 @pytest.mark.parametrize(
     ("key", "command"),
-    [pytest.param("auto_lip_sync", "async_auto_lip_sync_off", id="auto_lip_sync")],
+    [
+        pytest.param("auto_lip_sync", "async_auto_lip_sync_off", id="auto_lip_sync"),
+        pytest.param("subwoofer", "async_subwoofer_off", id="subwoofer"),
+    ],
 )
 async def test_any_zone_setting_sent_with_only_zone2_on(
     hass: HomeAssistant,
@@ -742,3 +745,94 @@ async def test_auto_lip_sync_follows_its_telnet_push(
     fire_telnet_event("Main", event, parameter)
 
     assert hass.states.get(entity_id).state == STATE_OFF
+
+
+@pytest.mark.parametrize(
+    ("subwoofer", "expected"),
+    [
+        pytest.param(True, STATE_ON, id="output_on"),
+        pytest.param(False, STATE_OFF, id="output_off"),
+        pytest.param(None, STATE_UNAVAILABLE, id="parameter_unreadable"),
+    ],
+)
+async def test_subwoofer_state(
+    hass: HomeAssistant,
+    client: MagicMock,
+    entity_registry: er.EntityRegistry,
+    subwoofer: bool | None,
+    expected: str,
+) -> None:
+    """The subwoofer output reports the receiver's state, or nothing at all.
+
+    None is the normal case rather than an edge one: as measured, the
+    receiver answers the parameter only in Stereo without an LFE channel,
+    so on an HTTP-only receiver this is unavailable for most of a film.
+    Rendering that as "off" would invite a press that writes a state
+    nobody asked for.
+    """
+    client.subwoofer = subwoofer
+    await setup_denonavr(hass)
+
+    state = hass.states.get(get_entity_id(entity_registry, SWITCH_DOMAIN, "subwoofer"))
+    assert state
+    assert state.state == expected
+
+
+@pytest.mark.parametrize(
+    ("subwoofer_adjustable", "subwoofer"),
+    [
+        pytest.param(False, None, id="not_adjustable"),
+        pytest.param(None, None, id="never_read"),
+        pytest.param(False, True, id="not_adjustable_with_a_value"),
+        pytest.param(None, True, id="never_read_with_a_value"),
+    ],
+)
+async def test_subwoofer_unavailable_unless_adjustable(
+    hass: HomeAssistant,
+    client: MagicMock,
+    entity_registry: er.EntityRegistry,
+    subwoofer_adjustable: bool | None,
+    subwoofer: bool | None,
+) -> None:
+    """The subwoofer output is unavailable until the receiver confirms it adjustable.
+
+    A value is not enough: Telnet reports the stored state even outside
+    Stereo, where the receiver ignores a write.
+    """
+    client.subwoofer_adjustable = subwoofer_adjustable
+    client.subwoofer = subwoofer
+    await setup_denonavr(hass)
+
+    state = hass.states.get(get_entity_id(entity_registry, SWITCH_DOMAIN, "subwoofer"))
+    assert state
+    assert state.state == STATE_UNAVAILABLE
+
+
+@pytest.mark.parametrize(
+    ("service", "method"),
+    [
+        pytest.param(SERVICE_TURN_ON, "async_subwoofer_on", id="on"),
+        pytest.param(SERVICE_TURN_OFF, "async_subwoofer_off", id="off"),
+    ],
+)
+async def test_set_subwoofer_never_toggles(
+    hass: HomeAssistant,
+    client: MagicMock,
+    entity_registry: er.EntityRegistry,
+    service: str,
+    method: str,
+) -> None:
+    """Each direction sends its own command rather than a toggle.
+
+    async_subwoofer_toggle() inverts the cached value, so a turn_on
+    against a stale True would send OFF.
+    """
+    await setup_denonavr(hass)
+    entity_id = get_entity_id(entity_registry, SWITCH_DOMAIN, "subwoofer")
+
+    await hass.services.async_call(
+        SWITCH_DOMAIN, service, {ATTR_ENTITY_ID: entity_id}, blocking=True
+    )
+
+    getattr(client, method).assert_awaited_once()
+    client.async_subwoofer_toggle.assert_not_awaited()
