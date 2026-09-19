@@ -7,6 +7,7 @@ from typing import Any, override
 from denonavr import DenonAVR
 
 from homeassistant.components.number import NumberEntity, NumberEntityDescription
+from homeassistant.const import SIGNAL_STRENGTH_DECIBELS, EntityCategory
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
@@ -37,7 +38,26 @@ class DenonAvrNumberEntityDescription(NumberEntityDescription):
     uses_settings_coordinator: bool = False
 
 
-NUMBER_TYPES: tuple[DenonAvrNumberEntityDescription, ...] = ()
+NUMBER_TYPES: tuple[DenonAvrNumberEntityDescription, ...] = (
+    DenonAvrNumberEntityDescription(
+        key="lfe_level",
+        translation_key="lfe_level",
+        # No device class: SIGNAL_STRENGTH is the only one core accepts
+        # dB for, and this is a level trim rather than a received
+        # signal strength.
+        native_unit_of_measurement=SIGNAL_STRENGTH_DECIBELS,
+        native_min_value=-10,
+        native_max_value=0,
+        native_step=1,
+        entity_category=EntityCategory.CONFIG,
+        # None whenever the incoming stream carries no LFE channel,
+        # which denonavr reads from the response's control attribute -
+        # the entity is unknown then, not stale.
+        value_fn=lambda receiver: receiver.lfe,
+        set_fn=lambda receiver, value: receiver.async_lfe(round(value)),
+        uses_settings_coordinator=True,
+    ),
+)
 
 
 async def async_setup_entry(

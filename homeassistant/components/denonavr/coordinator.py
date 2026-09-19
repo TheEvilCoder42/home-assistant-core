@@ -79,6 +79,12 @@ async def async_refresh_settings(receiver: DenonAVR, *, force: bool = False) -> 
     That payload carries the Audyssey settings and the audio delay -
     denonavr fetches both in a single request.
 
+    The LFE level rides the same request but has its own entry point,
+    which async_update_settings() doesn't call. It's receiver-wide, so
+    it's fetched once outside the loop: the 0300 tags are a tuple
+    shared by every zone, so a per-zone call would re-parse an answer
+    that already arrived rather than cost extra requests.
+
     Each zone is its own object with its own cached copy of them
     (denonavr's async_update_settings() only updates the zone it's
     called on), so Zone2/Zone3 media players need their own fetch too -
@@ -107,6 +113,12 @@ async def async_refresh_settings(receiver: DenonAVR, *, force: bool = False) -> 
                 receiver.name,
                 err,
             )
+    try:
+        await receiver.async_update_lfe()
+    except UNAVAILABLE_ON:
+        raise
+    except DenonAvrError as err:
+        _LOGGER.debug("Error refreshing the LFE level for %s: %s", receiver.name, err)
 
 
 class _RefreshFn(Protocol):

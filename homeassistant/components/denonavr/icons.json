@@ -1,6 +1,10 @@
 {
   "entity": {
-    "number": {},
+    "number": {
+      "lfe_level": {
+        "default": "mdi:sine-wave"
+      }
+    },
     "select": {
       "auto_standby": {
         "default": "mdi:timer-outline"

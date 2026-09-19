@@ -14,9 +14,11 @@ def _receiver_with_zones() -> tuple[MagicMock, MagicMock]:
     main.telnet_connected = False
     main.telnet_healthy = False
     main.async_update_settings = AsyncMock()
+    main.async_update_lfe = AsyncMock()
     zone2 = MagicMock()
     zone2.zone = "Zone2"
     zone2.async_update_settings = AsyncMock()
+    zone2.async_update_lfe = AsyncMock()
     main.zones = {"Main": main, "Zone2": zone2}
     return main, zone2
 
@@ -79,4 +81,36 @@ async def test_async_refresh_settings_continues_after_one_zones_command_error() 
 
     await async_refresh_settings(main)
 
+    zone2.async_update_settings.assert_awaited_once()
+
+
+async def test_async_refresh_settings_fetches_the_lfe_level_once() -> None:
+    """The LFE level is receiver-wide, so it's fetched outside the zone loop.
+
+    Every zone shares one AppCommand0300 tag tuple, so a per-zone call
+    would re-parse an answer that already arrived rather than fetch
+    anything new.
+    """
+    main, zone2 = _receiver_with_zones()
+
+    await async_refresh_settings(main)
+
+    main.async_update_lfe.assert_awaited_once()
+    zone2.async_update_lfe.assert_not_awaited()
+
+
+async def test_async_refresh_settings_survives_an_lfe_command_error() -> None:
+    """A receiver that doesn't serve the parameter must not fail the refresh.
+
+    GetSurroundParameter answers with an empty lfe on any stream
+    without an LFE channel, and not at all on a model that lacks it.
+    """
+    main, zone2 = _receiver_with_zones()
+    main.async_update_lfe = AsyncMock(
+        side_effect=AvrCommandError("not supported", "GetSurroundParameter")
+    )
+
+    await async_refresh_settings(main)
+
+    main.async_update_settings.assert_awaited_once()
     zone2.async_update_settings.assert_awaited_once()
