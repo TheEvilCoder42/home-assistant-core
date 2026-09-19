@@ -1,5 +1,7 @@
 """Constants for Denon AVR."""
 
+from denonavr.const import ZONE2, ZONE3
+
 DOMAIN = "denonavr"
 
 ATTR_DYNAMIC_EQ = "dynamic_eq"
@@ -33,3 +35,7 @@ ACTION_REFRESH_DEBOUNCE_COOLDOWN = 0.5
 # __init__.py notifies the settings coordinator on it, whether or not
 # media_player is enabled.
 SETTINGS_TELNET_EVENT = "PS"
+
+# How a secondary zone is spelled in the name of an entity that has
+# one per zone. The main zone's entities are named without it.
+ZONE_NAMES = {ZONE2: "Zone 2", ZONE3: "Zone 3"}

@@ -65,15 +65,20 @@ class DenonAvrPendingValueEntity[_T](CoordinatorEntity[DenonAvrDataUpdateCoordin
         coordinator: DenonAvrDataUpdateCoordinator,
         config_entry: DenonavrConfigEntry,
         key: str,
+        receiver: DenonAVR | None = None,
         follows_other_coordinator: bool = False,
         any_zone_on: bool = False,
     ) -> None:
-        """Initialize the entity on the receiver's device."""
+        """Initialize the entity on the receiver's device.
+
+        A zone entity is given its own zone's receiver object, which holds
+        that zone's values; the coordinator only holds the main zone's.
+        """
         super().__init__(coordinator)
         self._any_zone_on = any_zone_on
         self._data = config_entry.runtime_data
         self._follows_other_coordinator = follows_other_coordinator
-        self._receiver = coordinator.receiver
+        self._receiver = receiver if receiver is not None else coordinator.receiver
         self._attr_unique_id = receiver_unique_id(config_entry, key)
         # Identifiers alone: the media_player entities describe the device.
         self._attr_device_info = DeviceInfo(

@@ -94,6 +94,42 @@
           "10db": "+10 dB",
           "15db": "+15 dB"
         }
+      },
+      "volume_limit": {
+        "name": "Volume limit",
+        "state": {
+          "0db": "0 dB",
+          "minus_10db": "-10 dB",
+          "minus_11db": "-11 dB",
+          "minus_12db": "-12 dB",
+          "minus_13db": "-13 dB",
+          "minus_14db": "-14 dB",
+          "minus_15db": "-15 dB",
+          "minus_16db": "-16 dB",
+          "minus_17db": "-17 dB",
+          "minus_18db": "-18 dB",
+          "minus_19db": "-19 dB",
+          "minus_1db": "-1 dB",
+          "minus_20db": "-20 dB",
+          "minus_2db": "-2 dB",
+          "minus_3db": "-3 dB",
+          "minus_4db": "-4 dB",
+          "minus_5db": "-5 dB",
+          "minus_6db": "-6 dB",
+          "minus_7db": "-7 dB",
+          "minus_8db": "-8 dB",
+          "minus_9db": "-9 dB",
+          "off": "[%key:common::state::off%]"
+        }
+      },
+      "zone_volume_limit": {
+        "name": "{zone} volume limit",
+        "state": {
+          "0db": "[%key:component::denonavr::entity::select::volume_limit::state::0db%]",
+          "minus_10db": "[%key:component::denonavr::entity::select::volume_limit::state::minus_10db%]",
+          "minus_20db": "[%key:component::denonavr::entity::select::volume_limit::state::minus_20db%]",
+          "off": "[%key:common::state::off%]"
+        }
       }
     },
     "switch": {

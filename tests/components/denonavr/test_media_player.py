@@ -5,9 +5,8 @@ from collections.abc import Callable
 from contextlib import AbstractContextManager, nullcontext as does_not_raise
 from datetime import timedelta
 import logging
-from unittest.mock import MagicMock, create_autospec, patch
+from unittest.mock import MagicMock, patch
 
-from denonavr import DenonAVR
 from denonavr.const import POWER_OFF, POWER_ON, POWER_STANDBY
 from denonavr.exceptions import (
     AvrCommandError,
@@ -761,21 +760,17 @@ async def test_set_dynamic_eq_sent_while_the_power_is_unknown(
 async def test_set_dynamic_eq_on_zone2_reads_the_main_zone_power(
     hass: HomeAssistant,
     client: MagicMock,
+    zone2_client: MagicMock,
     main_power: str,
     zone2_power: str,
     expectation: AbstractContextManager,
     awaits: int,
 ) -> None:
     """Zone 2's player checks the main zone's power: Dynamic EQ follows it."""
-    zone2 = create_autospec(DenonAVR, instance=True)
-    zone2.name = TEST_NAME
-    zone2.zone = "Zone2"
-    zone2.input_func_list = []
-    zone2.sound_mode_list = []
-    client.zones = {TEST_ZONE: client, "Zone2": zone2}
+    zone2_client.name = TEST_NAME
     await setup_denonavr(hass, options={CONF_ZONE2: True})
     client.power = main_power
-    zone2.power = zone2_power
+    zone2_client.power = zone2_power
 
     with expectation:
         await hass.services.async_call(
@@ -785,7 +780,7 @@ async def test_set_dynamic_eq_on_zone2_reads_the_main_zone_power(
             blocking=True,
         )
 
-    assert zone2.async_dynamic_eq_on.await_count == awaits
+    assert zone2_client.async_dynamic_eq_on.await_count == awaits
 
 
 @pytest.mark.parametrize(
@@ -1206,7 +1201,7 @@ async def test_update_audyssey_action_survives_a_receiver_without_audyssey(
 
 
 async def test_update_settings_fetches_only_the_targeted_zone(
-    hass: HomeAssistant, client: MagicMock
+    hass: HomeAssistant, client: MagicMock, zone2_client: MagicMock
 ) -> None:
     """The action refreshes the zone it was called on, not every zone.
 
@@ -1214,15 +1209,11 @@ async def test_update_settings_fetches_only_the_targeted_zone(
     players calls it once per zone already - fetching every zone per
     call would square the number of these slow queries.
     """
-    zone2 = create_autospec(DenonAVR, instance=True)
-    zone2.name = TEST_NAME
-    zone2.zone = "Zone2"
-    zone2.input_func_list = []
-    zone2.sound_mode_list = []
-    client.zones = {TEST_ZONE: client, "Zone2": zone2}
-
+    # Every zone's media player names the shared device, so Zone 2's own
+    # name would rename the main zone's entity.
+    zone2_client.name = TEST_NAME
     await setup_denonavr(hass)
-    calls_before = zone2.async_update_settings.await_count
+    calls_before = zone2_client.async_update_settings.await_count
 
     await hass.services.async_call(
         DOMAIN,
@@ -1232,7 +1223,7 @@ async def test_update_settings_fetches_only_the_targeted_zone(
     await hass.async_block_till_done()
 
     client.async_update_settings.assert_awaited()
-    assert zone2.async_update_settings.await_count == calls_before
+    assert zone2_client.async_update_settings.await_count == calls_before
 
 
 @pytest.mark.parametrize(
