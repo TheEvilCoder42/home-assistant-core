@@ -84,53 +84,17 @@ async def test_async_refresh_settings_continues_after_one_zones_command_error() 
     zone2.async_update_settings.assert_awaited_once()
 
 
-async def test_async_refresh_settings_fetches_the_speaker_preset_once() -> None:
-    """The speaker preset is receiver-wide, so it's fetched outside the zone loop.
+async def test_async_refresh_settings_does_not_fetch_the_preset_separately() -> None:
+    """The preset arrives with the settings, in the request they share.
 
-    It also has its own entry point, which async_update_settings()
-    doesn't call - without this the backing select would read unknown
-    forever.
+    denonavr's async_update_settings() reads it out of the
+    AppCommand0300.xml answer it already has; calling its own entry
+    point as well would be a second POST for a value in hand.
     """
     main, zone2 = _receiver_with_zones()
 
     await async_refresh_settings(main)
 
-    main.async_update_speaker_preset.assert_awaited_once()
-    zone2.async_update_speaker_preset.assert_not_awaited()
-
-
-async def test_async_refresh_settings_skips_the_speaker_preset_when_telnet_healthy() -> (
-    None
-):
-    """The Telnet-healthy skip covers the speaker preset too."""
-    main, _ = _receiver_with_zones()
-    main.telnet_connected = True
-    main.telnet_healthy = True
-
-    await async_refresh_settings(main)
-
+    main.async_update_settings.assert_awaited_once()
     main.async_update_speaker_preset.assert_not_awaited()
-
-
-async def test_async_refresh_settings_continues_after_a_speaker_preset_error() -> None:
-    """A receiver without the speaker preset command doesn't fail the refresh."""
-    main, zone2 = _receiver_with_zones()
-    main.async_update_speaker_preset = AsyncMock(
-        side_effect=AvrCommandError("not supported", "GetSpeakerPreset")
-    )
-
-    await async_refresh_settings(main)
-
-    zone2.async_update_settings.assert_awaited_once()
-
-
-async def test_async_refresh_settings_fetches_the_preset_after_a_zone_error() -> None:
-    """One zone's failure doesn't stop the receiver-wide preset fetch."""
-    main, _ = _receiver_with_zones()
-    main.async_update_settings = AsyncMock(
-        side_effect=AvrCommandError("not supported", "GetAudyssey")
-    )
-
-    await async_refresh_settings(main)
-
-    main.async_update_speaker_preset.assert_awaited_once()
+    zone2.async_update_speaker_preset.assert_not_awaited()

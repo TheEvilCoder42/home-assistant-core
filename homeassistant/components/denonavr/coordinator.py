@@ -76,19 +76,14 @@ async def async_refresh_status(receiver: DenonAVR, *, force: bool = False) -> No
 async def async_refresh_settings(receiver: DenonAVR, *, force: bool = False) -> None:
     """Refresh the AppCommand0300 settings for every configured zone.
 
-    That payload carries the Audyssey settings and the audio delay -
-    denonavr fetches both in a single request.
+    That payload carries the Audyssey settings, the audio delay and the
+    speaker preset - denonavr fetches all three in a single request.
 
     Each zone is its own object with its own cached copy of them
     (denonavr's async_update_settings() only updates the zone it's
     called on), so Zone2/Zone3 media players need their own fetch too -
     matching receiver.py's Telnet-setup fetch and async_refresh_status's
     own per-zone loop.
-
-    The speaker preset rides the same request but has its own entry
-    point, which async_update_settings() doesn't call; it's
-    receiver-wide rather than per zone, so it's fetched once outside
-    the loop.
 
     Skips the HTTP poll if Telnet is already healthy and keeping
     everything current, for the same reason and in the same
@@ -112,14 +107,6 @@ async def async_refresh_settings(receiver: DenonAVR, *, force: bool = False) -> 
                 receiver.name,
                 err,
             )
-    try:
-        await receiver.async_update_speaker_preset()
-    except UNAVAILABLE_ON:
-        raise
-    except DenonAvrError as err:
-        _LOGGER.debug(
-            "Error refreshing the speaker preset for %s: %s", receiver.name, err
-        )
 
 
 class _RefreshFn(Protocol):
