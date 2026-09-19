@@ -84,33 +84,19 @@ async def test_async_refresh_settings_continues_after_one_zones_command_error() 
     zone2.async_update_settings.assert_awaited_once()
 
 
-async def test_async_refresh_settings_fetches_the_surround_parameters_once() -> None:
-    """The surround parameters are receiver-wide, so they're fetched outside the loop.
+async def test_async_refresh_settings_does_not_fetch_the_parameters_separately() -> (
+    None
+):
+    """The surround parameters arrive with the settings, in the shared request.
 
-    Every zone shares one AppCommand0300 tag tuple, so a per-zone call
-    would re-parse an answer that already arrived rather than fetch
-    anything new.
+    denonavr's async_update_settings() reads them out of the
+    AppCommand0300.xml answer it already has; calling their own entry
+    point as well would be a second POST for values in hand.
     """
     main, zone2 = _receiver_with_zones()
-
-    await async_refresh_settings(main)
-
-    main.async_update_surround_parameters.assert_awaited_once()
-    zone2.async_update_surround_parameters.assert_not_awaited()
-
-
-async def test_async_refresh_settings_survives_a_surround_parameter_error() -> None:
-    """A receiver that doesn't serve the parameter must not fail the refresh.
-
-    GetSurroundParameter answers with an empty lfe on any stream
-    without an LFE channel, and not at all on a model that lacks it.
-    """
-    main, zone2 = _receiver_with_zones()
-    main.async_update_surround_parameters = AsyncMock(
-        side_effect=AvrCommandError("not supported", "GetSurroundParameter")
-    )
 
     await async_refresh_settings(main)
 
     main.async_update_settings.assert_awaited_once()
-    zone2.async_update_settings.assert_awaited_once()
+    main.async_update_surround_parameters.assert_not_awaited()
+    zone2.async_update_surround_parameters.assert_not_awaited()
