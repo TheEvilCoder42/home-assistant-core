@@ -75,6 +75,22 @@ SWITCH_TYPES: tuple[DenonAvrSwitchEntityDescription, ...] = (
         # Its Telnet push arrives on OP or SS, which notify the status one.
         follows_other_coordinator=True,
     ),
+    DenonAvrSwitchEntityDescription(
+        key="subwoofer",
+        translation_key="subwoofer",
+        entity_category=EntityCategory.CONFIG,
+        is_on_fn=lambda receiver: receiver.subwoofer,
+        # A write is ignored outside Stereo or with an LFE channel, which only
+        # HTTP reports: re-checked by the settled read after a mode or source change.
+        available_fn=lambda receiver: receiver.subwoofer_adjustable is True,
+        # Not async_subwoofer_toggle(): it inverts the cached value, and a
+        # turn_on against a stale True would send OFF.
+        set_fn=lambda receiver, on: (
+            receiver.async_subwoofer_on() if on else receiver.async_subwoofer_off()
+        ),
+        any_zone_on=True,
+        uses_settings_coordinator=True,
+    ),
 )
 
 
