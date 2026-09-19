@@ -59,6 +59,8 @@ def client_fixture() -> Generator[MagicMock]:
         mock_client_class.return_value.auto_standby = "OFF"
         mock_client_class.return_value.audio_delay = 140
         mock_client_class.return_value.auto_lip_sync = True
+        mock_client_class.return_value.lfe = -2
+        mock_client_class.return_value.lfe_adjustable = True
         yield mock_client_class.return_value
 
 

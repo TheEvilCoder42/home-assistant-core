@@ -15,9 +15,14 @@ from homeassistant.components.number import (
     DOMAIN as NUMBER_DOMAIN,
     SERVICE_SET_VALUE,
 )
-from homeassistant.const import ATTR_ENTITY_ID, STATE_UNKNOWN, Platform
+from homeassistant.const import (
+    ATTR_ENTITY_ID,
+    STATE_UNAVAILABLE,
+    STATE_UNKNOWN,
+    Platform,
+)
 from homeassistant.core import HomeAssistant
-from homeassistant.exceptions import HomeAssistantError
+from homeassistant.exceptions import HomeAssistantError, ServiceValidationError
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.entity_component import async_update_entity
 from homeassistant.helpers.typing import UNDEFINED
@@ -29,7 +34,7 @@ from tests.common import snapshot_platform
 pytestmark = pytest.mark.usefixtures("fast_action_refresh_debounce")
 
 
-@pytest.mark.usefixtures("client")
+@pytest.mark.usefixtures("client", "entity_registry_enabled_by_default")
 async def test_entities(
     hass: HomeAssistant,
     entity_registry: er.EntityRegistry,
@@ -140,3 +145,116 @@ async def test_audio_delay_unknown_after_input_source_change(
     await async_update_entity(hass, entity_id)
 
     assert hass.states.get(entity_id).state == STATE_UNKNOWN
+
+
+@pytest.mark.usefixtures("client")
+async def test_lfe_level_disabled_by_default(
+    hass: HomeAssistant, entity_registry: er.EntityRegistry
+) -> None:
+    """The LFE attenuation is registered, but disabled until the user enables it."""
+    await setup_denonavr(hass)
+
+    entity_id = get_entity_id(entity_registry, NUMBER_DOMAIN, "lfe_level")
+    registry_entry = entity_registry.async_get(entity_id)
+    assert registry_entry
+    assert registry_entry.disabled_by is er.RegistryEntryDisabler.INTEGRATION
+    assert hass.states.get(entity_id) is None
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        pytest.param(-5, -5, id="whole_decibel"),
+        pytest.param(-4.6, -5, id="rounded_to_the_nearest_decibel"),
+    ],
+)
+@pytest.mark.usefixtures("entity_registry_enabled_by_default")
+async def test_set_lfe_level(
+    hass: HomeAssistant,
+    entity_registry: er.EntityRegistry,
+    client: MagicMock,
+    value: float,
+    expected: int,
+) -> None:
+    """Setting the LFE attenuation sends a whole, signed decibel.
+
+    async_lfe formats with str().zfill(), so a float would reach the
+    receiver as PSLFE 5.0 - accepted with a 200 and silently ignored.
+    """
+    await setup_denonavr(hass)
+
+    await hass.services.async_call(
+        NUMBER_DOMAIN,
+        SERVICE_SET_VALUE,
+        {
+            ATTR_ENTITY_ID: get_entity_id(entity_registry, NUMBER_DOMAIN, "lfe_level"),
+            ATTR_VALUE: value,
+        },
+        blocking=True,
+    )
+
+    client.async_lfe.assert_awaited_once_with(expected)
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        pytest.param(-11, id="below_the_minimum"),
+        pytest.param(1, id="above_the_maximum"),
+    ],
+)
+@pytest.mark.usefixtures("entity_registry_enabled_by_default")
+async def test_set_lfe_level_out_of_range_never_reaches_the_receiver(
+    hass: HomeAssistant,
+    entity_registry: er.EntityRegistry,
+    client: MagicMock,
+    value: float,
+) -> None:
+    """Core's own min/max rejects the call before the library sees it."""
+    await setup_denonavr(hass)
+
+    with pytest.raises(ServiceValidationError):
+        await hass.services.async_call(
+            NUMBER_DOMAIN,
+            SERVICE_SET_VALUE,
+            {
+                ATTR_ENTITY_ID: get_entity_id(
+                    entity_registry, NUMBER_DOMAIN, "lfe_level"
+                ),
+                ATTR_VALUE: value,
+            },
+            blocking=True,
+        )
+
+    client.async_lfe.assert_not_awaited()
+
+
+@pytest.mark.parametrize(
+    ("lfe_adjustable", "lfe"),
+    [
+        pytest.param(False, None, id="not_adjustable"),
+        pytest.param(None, None, id="never_read"),
+        pytest.param(False, -2, id="not_adjustable_with_a_value"),
+        pytest.param(None, -2, id="never_read_with_a_value"),
+    ],
+)
+@pytest.mark.usefixtures("entity_registry_enabled_by_default")
+async def test_lfe_level_unavailable_unless_adjustable(
+    hass: HomeAssistant,
+    entity_registry: er.EntityRegistry,
+    client: MagicMock,
+    lfe_adjustable: bool | None,
+    lfe: int | None,
+) -> None:
+    """The LFE attenuation is unavailable until the receiver confirms it adjustable.
+
+    A value is not enough: Telnet reports the stored level even while the
+    stream has no LFE channel, when the receiver ignores a write.
+    """
+    client.lfe_adjustable = lfe_adjustable
+    client.lfe = lfe
+    await setup_denonavr(hass)
+
+    state = hass.states.get(get_entity_id(entity_registry, NUMBER_DOMAIN, "lfe_level"))
+    assert state
+    assert state.state == STATE_UNAVAILABLE

@@ -104,6 +104,11 @@ async def async_refresh_settings(receiver: DenonAVR, *, force: bool = False) -> 
     One cache id covers the loop: the AppCommand0300 body carries no zone, so
     every zone would otherwise post the same bytes for the same answer. It has
     to be new each refresh or the zones are handed the settings from last time.
+
+    The surround parameters ride the same request but have their own entry
+    point, which async_update_settings() does not call. Receiver-wide, so they
+    are read once, after the loop: the cache answers them only from a request
+    that has already completed, not from one still in flight.
     """
     if not force and receiver.telnet_connected and receiver.telnet_healthy:
         return
@@ -120,6 +125,16 @@ async def async_refresh_settings(receiver: DenonAVR, *, force: bool = False) -> 
                 receiver.name,
                 err,
             )
+    try:
+        await receiver.async_update_surround_parameters(
+            global_update=True, cache_id=cache_id
+        )
+    except UNAVAILABLE_ON:
+        raise
+    except DenonAvrError as err:
+        _LOGGER.debug(
+            "Error refreshing the surround parameters for %s: %s", receiver.name, err
+        )
 
 
 class _RefreshFn(Protocol):

@@ -3,7 +3,7 @@
 import asyncio
 from collections.abc import Awaitable, Callable
 from datetime import timedelta
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, call
 
 from denonavr.exceptions import (
     AvrCommandError,
@@ -43,10 +43,12 @@ def _receiver_with_zones() -> tuple[MagicMock, MagicMock]:
     main.telnet_healthy = False
     main.async_update = AsyncMock()
     main.async_update_settings = AsyncMock()
+    main.async_update_surround_parameters = AsyncMock()
     zone2 = MagicMock()
     zone2.zone = "Zone2"
     zone2.async_update = AsyncMock()
     zone2.async_update_settings = AsyncMock()
+    zone2.async_update_surround_parameters = AsyncMock()
     main.zones = {"Main": main, "Zone2": zone2}
     return main, zone2
 
@@ -174,6 +176,44 @@ async def test_status_refresh_still_fails_on_an_incomplete_response() -> None:
         await async_refresh_status(main)
 
     zone2.async_update.assert_not_awaited()
+
+
+async def test_async_refresh_settings_reads_the_surround_parameters_once() -> None:
+    """The surround parameters are read after the zones, under their cache id.
+
+    They are receiver-wide, and with the same cache id denonavr answers
+    them out of the zones' AppCommand0300 request instead of a second one.
+    That only works once that request has completed, hence after the loop.
+    """
+    main, zone2 = _receiver_with_zones()
+    calls = MagicMock()
+    calls.attach_mock(main.async_update_settings, "main_settings")
+    calls.attach_mock(zone2.async_update_settings, "zone2_settings")
+    calls.attach_mock(main.async_update_surround_parameters, "surround_parameters")
+
+    await async_refresh_settings(main)
+
+    cache_id = main.async_update_settings.await_args.kwargs["cache_id"]
+    assert cache_id is not None
+    assert calls.mock_calls == [
+        call.main_settings(cache_id=cache_id),
+        call.zone2_settings(cache_id=cache_id),
+        call.surround_parameters(global_update=True, cache_id=cache_id),
+    ]
+    zone2.async_update_surround_parameters.assert_not_awaited()
+
+
+async def test_async_refresh_settings_survives_a_surround_parameter_error() -> None:
+    """An error from the surround parameters must not fail the settings refresh."""
+    main, zone2 = _receiver_with_zones()
+    main.async_update_surround_parameters.side_effect = AvrCommandError(
+        "not supported", "GetSurroundParameter"
+    )
+
+    await async_refresh_settings(main)
+
+    main.async_update_settings.assert_awaited_once()
+    zone2.async_update_settings.assert_awaited_once()
 
 
 def _coordinator(

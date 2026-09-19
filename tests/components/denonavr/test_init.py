@@ -286,6 +286,8 @@ async def _wait_out_settled_refresh(
     [
         pytest.param("input_func", "TV-Box", 0, id="same_source"),
         pytest.param("input_func", "Blu-ray", 1, id="new_source"),
+        pytest.param("sound_mode_raw", "Stereo", 0, id="same_sound_mode"),
+        pytest.param("sound_mode_raw", "DOLBY AUDIO-DD+ +DSUR", 1, id="new_sound_mode"),
     ],
 )
 async def test_change_rereads_settings_once_settled(
@@ -296,12 +298,15 @@ async def test_change_rereads_settings_once_settled(
     value: str,
     reads: int,
 ) -> None:
-    """A source change re-reads the settings: the audio delay is per source.
+    """A source or sound mode change re-reads the settings.
 
-    Not straight away: the receiver takes a few seconds to switch. The value
-    read at setup is the baseline rather than a change.
+    The audio delay is per source, and whether the LFE level can be set
+    follows the sound mode. Not straight away: the receiver takes a few
+    seconds to switch. The value read at setup is the baseline rather than a
+    change.
     """
     client.input_func = "TV-Box"
+    client.sound_mode_raw = "Stereo"
     entry = await setup_denonavr(hass)
     settings_reads = client.async_update_settings.await_count
 

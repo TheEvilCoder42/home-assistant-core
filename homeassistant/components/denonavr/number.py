@@ -11,7 +11,7 @@ from homeassistant.components.number import (
     NumberEntity,
     NumberEntityDescription,
 )
-from homeassistant.const import EntityCategory, UnitOfTime
+from homeassistant.const import SIGNAL_STRENGTH_DECIBELS, EntityCategory, UnitOfTime
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
@@ -55,6 +55,24 @@ NUMBER_TYPES: tuple[DenonAvrNumberEntityDescription, ...] = (
         # source change and this reads None until the next refresh.
         value_fn=lambda receiver: receiver.audio_delay,
         set_fn=lambda receiver, value: receiver.async_delay(round(value)),
+        uses_settings_coordinator=True,
+    ),
+    DenonAvrNumberEntityDescription(
+        key="lfe_level",
+        translation_key="lfe_level",
+        # No device class: signal strength and sound pressure are the dB
+        # classes, and this is a level trim, not either.
+        native_unit_of_measurement=SIGNAL_STRENGTH_DECIBELS,
+        native_min_value=-10,
+        native_max_value=0,
+        native_step=1,
+        entity_category=EntityCategory.CONFIG,
+        entity_registry_enabled_default=False,
+        value_fn=lambda receiver: receiver.lfe,
+        # A write is ignored while the stream has no LFE channel, which only HTTP
+        # reports; with Telnet up, only the update_audyssey action re-reads it.
+        available_fn=lambda receiver: receiver.lfe_adjustable is True,
+        set_fn=lambda receiver, value: receiver.async_lfe(round(value)),
         uses_settings_coordinator=True,
     ),
 )

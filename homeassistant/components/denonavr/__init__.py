@@ -124,7 +124,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: DenonavrConfigEntry) -> 
 
     def _watched() -> tuple[str | None, ...]:
         """Status values whose change leaves the settings stale."""
-        return (receiver.input_func,)
+        return (receiver.input_func, receiver.sound_mode_raw)
 
     # As of the last settings read that returned: one that failed, or was
     # overtaken by a change, is retried on the next status refresh.
@@ -204,12 +204,14 @@ async def async_setup_entry(hass: HomeAssistant, entry: DenonavrConfigEntry) -> 
 
     @callback
     def _refresh_settings_on_change() -> None:
-        """Re-read the settings after an input source change.
+        """Re-read the settings after an input source or sound mode change.
 
         The receiver stores the audio delay and some Audyssey settings per
-        source, and denonavr forgets the delay on a change; without the
-        periodic poll nothing would read them again. Settled, because the
-        receiver takes a few seconds to switch.
+        source, and denonavr forgets the delay on a change. Whether the LFE
+        level can be set follows the sound mode and the stream: the raw mode,
+        since the matched one is the same for streams with and without an LFE
+        channel. Without the periodic poll nothing would read them again.
+        Settled, because the receiver takes a few seconds to switch.
         """
         nonlocal requested_for
         watched = _watched()
