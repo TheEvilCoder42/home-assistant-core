@@ -1,6 +1,9 @@
 {
   "entity": {
     "number": {
+      "channel_level": {
+        "default": "mdi:tune-vertical"
+      },
       "subwoofer_level": {
         "default": "mdi:tune-vertical"
       }
