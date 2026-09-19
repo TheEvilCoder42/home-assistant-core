@@ -415,3 +415,56 @@ async def test_pending_state_expires_instead_of_masking_forever(
         await async_update_entity(hass, entity_id)
 
         assert hass.states.get(entity_id).state == "on"
+
+
+@pytest.mark.parametrize(
+    ("subwoofer", "expected"),
+    [
+        pytest.param(True, "on", id="output_on"),
+        pytest.param(False, "off", id="output_off"),
+        pytest.param(None, STATE_UNAVAILABLE, id="parameter_unreadable"),
+    ],
+)
+async def test_subwoofer_state(
+    hass: HomeAssistant, client: MagicMock, subwoofer: bool | None, expected: str
+) -> None:
+    """The subwoofer output reports the receiver's state, or nothing at all.
+
+    None is the normal case rather than an edge one: the receiver only
+    answers the parameter in Stereo, so on an HTTP-only receiver this
+    is unavailable for most of a film. Rendering that as "off" would
+    invite a press that writes a state nobody asked for.
+    """
+    client.subwoofer = subwoofer
+    await setup_denonavr(hass)
+
+    state = hass.states.get(_entity_id(hass, SWITCH_DOMAIN, "subwoofer"))
+    assert state
+    assert state.state == expected
+
+
+@pytest.mark.parametrize(
+    ("service", "method"),
+    [
+        pytest.param(SERVICE_TURN_ON, "async_subwoofer_on", id="on"),
+        pytest.param(SERVICE_TURN_OFF, "async_subwoofer_off", id="off"),
+    ],
+)
+async def test_set_subwoofer_never_toggles(
+    hass: HomeAssistant, client: MagicMock, service: str, method: str
+) -> None:
+    """Each direction sends its own command rather than a toggle.
+
+    async_subwoofer_toggle() decides from the same value the receiver
+    leaves unreadable, so on an HTTP-only receiver it would flip a
+    coin.
+    """
+    await setup_denonavr(hass)
+    entity_id = _entity_id(hass, SWITCH_DOMAIN, "subwoofer")
+
+    await hass.services.async_call(
+        SWITCH_DOMAIN, service, {ATTR_ENTITY_ID: entity_id}, blocking=True
+    )
+
+    getattr(client, method).assert_awaited_once()
+    client.async_subwoofer_toggle.assert_not_awaited()

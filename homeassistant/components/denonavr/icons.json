@@ -28,6 +28,9 @@
     "switch": {
       "dynamic_eq": {
         "default": "mdi:auto-fix"
+      },
+      "subwoofer": {
+        "default": "mdi:speaker"
       }
     }
   },

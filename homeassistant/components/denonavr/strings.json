@@ -64,6 +64,9 @@
     "switch": {
       "dynamic_eq": {
         "name": "Dynamic EQ"
+      },
+      "subwoofer": {
+        "name": "Subwoofer"
       }
     }
   },

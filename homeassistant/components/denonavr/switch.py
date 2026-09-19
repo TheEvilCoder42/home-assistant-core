@@ -52,6 +52,26 @@ SWITCH_TYPES: tuple[DenonAvrSwitchEntityDescription, ...] = (
         error_label="Dynamic EQ",
         uses_settings_coordinator=True,
     ),
+    DenonAvrSwitchEntityDescription(
+        key="subwoofer",
+        translation_key="subwoofer",
+        entity_category=EntityCategory.CONFIG,
+        # None whenever the receiver reports the parameter as
+        # unreadable, which it does in every sound mode but Stereo. The
+        # switch is unavailable then rather than off: showing an
+        # unreadable toggle as off invites a press that writes a state
+        # nobody asked for.
+        is_on_fn=lambda receiver: receiver.subwoofer,
+        # Not async_subwoofer_toggle(): it branches on the same value,
+        # so on an HTTP-only receiver it decides from None.
+        set_fn=lambda receiver, on: (
+            receiver.async_subwoofer_on() if on else receiver.async_subwoofer_off()
+        ),
+        error_label="Subwoofer",
+        # Without Telnet the state comes from GetSurroundParameter,
+        # which only this coordinator's request fetches.
+        uses_settings_coordinator=True,
+    ),
 )
 
 
