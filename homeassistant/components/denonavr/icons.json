@@ -1,6 +1,10 @@
 {
   "entity": {
-    "number": {},
+    "number": {
+      "subwoofer_level": {
+        "default": "mdi:tune-vertical"
+      }
+    },
     "select": {
       "auto_standby": {
         "default": "mdi:timer-outline"

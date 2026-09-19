@@ -1,0 +1,121 @@
+# serializer version: 1
+# name: test_entities[number.test_receiver_subwoofer_1_level_adjust-entry]
+  EntityRegistryEntrySnapshot({
+    'aliases': list([
+      None,
+    ]),
+    'area_id': None,
+    'capabilities': dict({
+      <NumberEntityCapabilityAttribute.MAX: 'max'>: 12,
+      <NumberEntityCapabilityAttribute.MIN: 'min'>: -12,
+      <NumberEntityCapabilityAttribute.MODE: 'mode'>: <NumberMode.AUTO: 'auto'>,
+      <NumberEntityCapabilityAttribute.STEP: 'step'>: 0.5,
+    }),
+    'config_entry_id': <ANY>,
+    'config_subentry_id': <ANY>,
+    'device_class': None,
+    'device_id': <ANY>,
+    'disabled_by': None,
+    'domain': 'number',
+    'entity_category': <EntityCategory.CONFIG: 'config'>,
+    'entity_id': 'number.test_receiver_subwoofer_1_level_adjust',
+    'has_entity_name': True,
+    'hidden_by': None,
+    'icon': None,
+    'id': <ANY>,
+    'labels': set({
+    }),
+    'name': None,
+    'object_id_base': 'Subwoofer 1 level adjust',
+    'options': dict({
+    }),
+    'original_device_class': None,
+    'original_icon': None,
+    'original_name': 'Subwoofer 1 level adjust',
+    'platform': 'denonavr',
+    'previous_unique_id': None,
+    'suggested_object_id': None,
+    'supported_features': 0,
+    'translation_key': 'subwoofer_level',
+    'unique_id': 'model5-123456789-subwoofer_level_1',
+    'unit_of_measurement': <UnitOfSoundPressure.DECIBEL: 'dB'>,
+  })
+# ---
+# name: test_entities[number.test_receiver_subwoofer_1_level_adjust-state]
+  StateSnapshot({
+    'attributes': ReadOnlyDict({
+      <EntityStateAttribute.FRIENDLY_NAME: 'friendly_name'>: 'Test_Receiver Subwoofer 1 level adjust',
+      <NumberEntityCapabilityAttribute.MAX: 'max'>: 12,
+      <NumberEntityCapabilityAttribute.MIN: 'min'>: -12,
+      <NumberEntityCapabilityAttribute.MODE: 'mode'>: <NumberMode.AUTO: 'auto'>,
+      <NumberEntityCapabilityAttribute.STEP: 'step'>: 0.5,
+      <EntityStateAttribute.UNIT_OF_MEASUREMENT: 'unit_of_measurement'>: <UnitOfSoundPressure.DECIBEL: 'dB'>,
+    }),
+    'context': <ANY>,
+    'entity_id': 'number.test_receiver_subwoofer_1_level_adjust',
+    'last_changed': <ANY>,
+    'last_reported': <ANY>,
+    'last_updated': <ANY>,
+    'state': '0.0',
+  })
+# ---
+# name: test_entities[number.test_receiver_subwoofer_2_level_adjust-entry]
+  EntityRegistryEntrySnapshot({
+    'aliases': list([
+      None,
+    ]),
+    'area_id': None,
+    'capabilities': dict({
+      <NumberEntityCapabilityAttribute.MAX: 'max'>: 12,
+      <NumberEntityCapabilityAttribute.MIN: 'min'>: -12,
+      <NumberEntityCapabilityAttribute.MODE: 'mode'>: <NumberMode.AUTO: 'auto'>,
+      <NumberEntityCapabilityAttribute.STEP: 'step'>: 0.5,
+    }),
+    'config_entry_id': <ANY>,
+    'config_subentry_id': <ANY>,
+    'device_class': None,
+    'device_id': <ANY>,
+    'disabled_by': None,
+    'domain': 'number',
+    'entity_category': <EntityCategory.CONFIG: 'config'>,
+    'entity_id': 'number.test_receiver_subwoofer_2_level_adjust',
+    'has_entity_name': True,
+    'hidden_by': None,
+    'icon': None,
+    'id': <ANY>,
+    'labels': set({
+    }),
+    'name': None,
+    'object_id_base': 'Subwoofer 2 level adjust',
+    'options': dict({
+    }),
+    'original_device_class': None,
+    'original_icon': None,
+    'original_name': 'Subwoofer 2 level adjust',
+    'platform': 'denonavr',
+    'previous_unique_id': None,
+    'suggested_object_id': None,
+    'supported_features': 0,
+    'translation_key': 'subwoofer_level',
+    'unique_id': 'model5-123456789-subwoofer_level_2',
+    'unit_of_measurement': <UnitOfSoundPressure.DECIBEL: 'dB'>,
+  })
+# ---
+# name: test_entities[number.test_receiver_subwoofer_2_level_adjust-state]
+  StateSnapshot({
+    'attributes': ReadOnlyDict({
+      <EntityStateAttribute.FRIENDLY_NAME: 'friendly_name'>: 'Test_Receiver Subwoofer 2 level adjust',
+      <NumberEntityCapabilityAttribute.MAX: 'max'>: 12,
+      <NumberEntityCapabilityAttribute.MIN: 'min'>: -12,
+      <NumberEntityCapabilityAttribute.MODE: 'mode'>: <NumberMode.AUTO: 'auto'>,
+      <NumberEntityCapabilityAttribute.STEP: 'step'>: 0.5,
+      <EntityStateAttribute.UNIT_OF_MEASUREMENT: 'unit_of_measurement'>: <UnitOfSoundPressure.DECIBEL: 'dB'>,
+    }),
+    'context': <ANY>,
+    'entity_id': 'number.test_receiver_subwoofer_2_level_adjust',
+    'last_changed': <ANY>,
+    'last_reported': <ANY>,
+    'last_updated': <ANY>,
+    'state': '-1.5',
+  })
+# ---
