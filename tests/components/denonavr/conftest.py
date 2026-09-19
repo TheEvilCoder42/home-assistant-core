@@ -2,9 +2,10 @@
 
 from collections import defaultdict
 from collections.abc import Callable, Generator
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, create_autospec, patch
 
-from denonavr.const import ALL_TELNET_EVENTS
+from denonavr import DenonAVR
+from denonavr.const import ALL_TELNET_EVENTS, ZONE2
 import pytest
 
 from . import (
@@ -42,6 +43,9 @@ def client_fixture() -> Generator[MagicMock]:
         mock_client_class.return_value.zones = {"Main": mock_client_class.return_value}
         mock_client_class.return_value.telnet_connected = False
         mock_client_class.return_value.telnet_healthy = False
+        # Reported, and no volume limit configured, which the library reads as 18.0.
+        mock_client_class.return_value.max_volume = 18.0
+        mock_client_class.return_value.max_volume_known = True
 
         mock_client_class.return_value.dynamic_eq = True
         mock_client_class.return_value.reference_level_offset = "0dB"
@@ -58,6 +62,26 @@ def client_fixture() -> Generator[MagicMock]:
         mock_client_class.return_value.dimmer = "Bright"
         mock_client_class.return_value.auto_standby = "OFF"
         yield mock_client_class.return_value
+
+
+@pytest.fixture(name="zone2_client")
+def zone2_client_fixture(client: MagicMock) -> MagicMock:
+    """Give the mocked receiver a Zone 2, and return that zone's object.
+
+    A zone is its own receiver object in the library, holding its own
+    copy of every per-zone value, so a zone entity has to be given it
+    rather than the main one.
+    """
+    zone2 = create_autospec(DenonAVR, instance=True)
+    zone2.name = f"{TEST_NAME} {ZONE2}"
+    zone2.host = TEST_HOST
+    zone2.zone = ZONE2
+    zone2.input_func_list = []
+    zone2.sound_mode_list = []
+    zone2.max_volume = 18.0
+    zone2.max_volume_known = True
+    client.zones = {TEST_ZONE: client, ZONE2: zone2}
+    return zone2
 
 
 @pytest.fixture

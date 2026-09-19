@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from typing import Any, override
 
 from denonavr import DenonAVR
+from denonavr.const import MAX_VOLUME_MAX, MAX_VOLUME_MIN, MAX_VOLUME_STEP
 
 from homeassistant.components.select import SelectEntity, SelectEntityDescription
 from homeassistant.const import EntityCategory
@@ -12,6 +13,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
 from . import DenonavrConfigEntry
+from .const import ZONE_NAMES
 from .entity import DenonAvrPendingValueEntity, audyssey_available
 
 # Denon receivers do not handle concurrent requests reliably. Only
@@ -32,6 +34,9 @@ class DenonAvrSelectEntityDescription(SelectEntityDescription):
     # Whether the setting can currently be changed (e.g. Reference Level
     # Offset requires Dynamic EQ to be on).
     available_fn: Callable[[DenonAVR], bool] = lambda receiver: True
+    # Whether the receiver has reported the setting yet. Until it has, the
+    # entity reads unknown rather than unavailable, since it is settable.
+    reported_fn: Callable[[DenonAVR], bool] = lambda receiver: True
     # AppCommand0300 values need the coordinator whose poll is conditional
     # on "Update audio settings periodically"; everything else reads with
     # the status one.
@@ -123,6 +128,55 @@ SELECT_TYPES: tuple[DenonAvrSelectEntityDescription, ...] = (
     ),
 )
 
+# The limit can be off, and 0.0 dB is itself a valid limit, so this is a
+# select rather than a number.
+VOLUME_LIMIT_OFF = "OFF"
+
+
+def _volume_limit_values(zone: str) -> dict[str, str]:
+    """Map an option key to each limit a zone accepts, lowest first.
+
+    The main zone takes every whole decibel, the secondary zones only
+    multiples of ten. A translation key cannot start with "-".
+    """
+    step = MAX_VOLUME_STEP[zone]
+    limits = (
+        MAX_VOLUME_MIN + index * step
+        for index in range(round((MAX_VOLUME_MAX - MAX_VOLUME_MIN) / step) + 1)
+    )
+    return {"off": VOLUME_LIMIT_OFF} | {
+        f"minus_{-limit:g}db" if limit < 0 else f"{limit:g}db": f"{limit:g}"
+        for limit in limits
+    }
+
+
+def _current_volume_limit(receiver: DenonAVR) -> str | None:
+    """Return the configured limit, OFF when there is none."""
+    if not receiver.max_volume_known:
+        return None
+    # The library reads no limit as 18.0, the hardware maximum.
+    if (max_volume := receiver.max_volume) >= 18.0:
+        return VOLUME_LIMIT_OFF
+    return f"{max_volume:g}"
+
+
+def _volume_limit_description(zone: str) -> DenonAvrSelectEntityDescription:
+    """Describe the volume limit entity for one of the receiver's zones."""
+    zone_name = ZONE_NAMES.get(zone)
+    return DenonAvrSelectEntityDescription(
+        key=f"{zone}-volume_limit",
+        translation_key="volume_limit" if zone_name is None else "zone_volume_limit",
+        translation_placeholders=None if zone_name is None else {"zone": zone_name},
+        entity_category=EntityCategory.CONFIG,
+        values=_volume_limit_values(zone),
+        current_value_fn=_current_volume_limit,
+        # Off the AppCommand API, only a Telnet push on a change reports one.
+        reported_fn=lambda receiver: receiver.max_volume_known,
+        select_value_fn=lambda receiver, value: receiver.async_set_max_volume(
+            None if value == VOLUME_LIMIT_OFF else float(value)
+        ),
+    )
+
 
 async def async_setup_entry(
     hass: HomeAssistant,
@@ -132,6 +186,10 @@ async def async_setup_entry(
     """Set up the DenonAVR select entities from a config entry."""
     async_add_entities(
         DenonAvrSelect(config_entry, description) for description in SELECT_TYPES
+    )
+    async_add_entities(
+        DenonAvrSelect(config_entry, _volume_limit_description(zone), zone_receiver)
+        for zone, zone_receiver in config_entry.runtime_data.receiver.zones.items()
     )
 
 
@@ -144,6 +202,7 @@ class DenonAvrSelect(DenonAvrPendingValueEntity[str], SelectEntity):
         self,
         config_entry: DenonavrConfigEntry,
         description: DenonAvrSelectEntityDescription,
+        receiver: DenonAVR | None = None,
     ) -> None:
         """Initialize the select entity."""
         data = config_entry.runtime_data
@@ -153,6 +212,7 @@ class DenonAvrSelect(DenonAvrPendingValueEntity[str], SelectEntity):
             else data.coordinator,
             config_entry,
             description.key,
+            receiver,
             follows_other_coordinator=description.follows_other_coordinator,
         )
         self.entity_description = description
@@ -176,7 +236,11 @@ class DenonAvrSelect(DenonAvrPendingValueEntity[str], SelectEntity):
         Also False if the coordinator's last refresh failed, so an
         unresponsive receiver doesn't keep showing stale data as current.
         """
-        if not super().available or self._current_value is None:
+        if not super().available:
+            return False
+        if self._current_value is None and self.entity_description.reported_fn(
+            self._receiver
+        ):
             return False
         return self.entity_description.available_fn(self._receiver)
 
