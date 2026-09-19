@@ -592,19 +592,27 @@ async def test_simple_command_wrappers(
 
 
 @pytest.mark.parametrize(
-    ("volume", "expected_denon_volume"),
+    ("max_volume", "volume", "expected_denon_volume"),
     [
-        pytest.param(0.8, -0.0, id="mid_range"),
-        pytest.param(1.0, 18.0, id="clamped_to_max"),
+        pytest.param(18.0, 0.8, -0.0, id="mid_range"),
+        pytest.param(18.0, 1.0, 18.0, id="clamped_to_max"),
+        pytest.param(-10.0, 1.0, -10.0, id="clamped_to_the_limit"),
+        pytest.param(-10.0, 0.5, -30.0, id="below_the_limit"),
     ],
 )
 async def test_set_volume_level_converts_and_clamps(
     hass: HomeAssistant,
     client: MagicMock,
+    max_volume: float,
     volume: float,
     expected_denon_volume: float,
 ) -> None:
-    """Volume is converted to Denon's range and clamped at its maximum."""
+    """Volume is converted to Denon's range and clamped at its ceiling.
+
+    The ceiling is max_volume, the configured limit or 18.0 without one,
+    so both transports stop at the limit: the library caps only over Telnet.
+    """
+    client.max_volume = max_volume
     await setup_denonavr(hass)
 
     await hass.services.async_call(

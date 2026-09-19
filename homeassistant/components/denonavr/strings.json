@@ -36,7 +36,14 @@
     }
   },
   "entity": {
-    "number": {},
+    "number": {
+      "volume": {
+        "name": "Volume"
+      },
+      "zone_volume": {
+        "name": "{zone} volume"
+      }
+    },
     "select": {
       "auto_standby": {
         "name": "Auto standby",
@@ -169,8 +176,8 @@
           "show_all_sources": "Displays all sources, even ones the receiver marks as deleted",
           "update_audyssey": "Updates the audio settings on a schedule while Telnet is not connected, which can take up to 10 seconds on some receivers. Without it, they only update on demand",
           "use_telnet": "Enables real-time updates. Only one Telnet connection to the receiver is allowed at a time",
-          "zone2": "Adds a media player entity for Zone 2, if supported by the receiver",
-          "zone3": "Adds a media player entity for Zone 3, if supported by the receiver"
+          "zone2": "Adds a media player, a volume and a volume limit entity for Zone 2, if supported by the receiver",
+          "zone3": "Adds a media player, a volume and a volume limit entity for Zone 3, if supported by the receiver"
         },
         "description": "Specify optional settings"
       }

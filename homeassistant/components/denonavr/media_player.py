@@ -413,11 +413,8 @@ class DenonDevice(CoordinatorEntity[DenonAvrDataUpdateCoordinator], MediaPlayerE
     @override
     async def async_set_volume_level(self, volume: float) -> None:
         """Set volume level, range 0..1."""
-        # Volume has to be sent in a format like -50.0. Minimum is -80.0,
-        # maximum is 18.0
-        volume_denon = float((volume * 100) - 80)
-        if volume_denon > 18:
-            volume_denon = float(18)
+        # The library caps at the limit over Telnet but not over HTTP.
+        volume_denon = min(float((volume * 100) - 80), self._receiver.max_volume)
         await self._receiver.async_set_volume(volume_denon)
 
     @async_log_errors
