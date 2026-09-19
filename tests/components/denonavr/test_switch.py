@@ -664,37 +664,60 @@ async def test_auto_lip_sync_unavailable_when_unknown(
 
 
 @pytest.mark.parametrize(
-    ("service", "called", "not_called"),
+    ("key", "service", "called", "not_called", "toggle"),
     [
         pytest.param(
+            "auto_lip_sync",
             SERVICE_TURN_ON,
             "async_auto_lip_sync_on",
             "async_auto_lip_sync_off",
-            id="turn_on",
+            "async_auto_lip_sync_toggle",
+            id="auto_lip_sync_turn_on",
         ),
         pytest.param(
+            "auto_lip_sync",
             SERVICE_TURN_OFF,
             "async_auto_lip_sync_off",
             "async_auto_lip_sync_on",
-            id="turn_off",
+            "async_auto_lip_sync_toggle",
+            id="auto_lip_sync_turn_off",
+        ),
+        pytest.param(
+            "subwoofer",
+            SERVICE_TURN_ON,
+            "async_subwoofer_on",
+            "async_subwoofer_off",
+            "async_subwoofer_toggle",
+            id="subwoofer_turn_on",
+        ),
+        pytest.param(
+            "subwoofer",
+            SERVICE_TURN_OFF,
+            "async_subwoofer_off",
+            "async_subwoofer_on",
+            "async_subwoofer_toggle",
+            id="subwoofer_turn_off",
         ),
     ],
 )
-async def test_set_auto_lip_sync(
+async def test_on_off_setting_never_toggles(
     hass: HomeAssistant,
     client: MagicMock,
     entity_registry: er.EntityRegistry,
+    key: str,
     service: str,
     called: str,
     not_called: str,
+    toggle: str,
 ) -> None:
     """Each direction sends its own command, never the toggle.
 
-    async_auto_lip_sync_toggle() inverts the last value read, so it raises
-    while that is unknown and repeats a change not yet read back.
+    The toggle inverts the last value read, so it raises while that is
+    unknown (auto lip sync) and repeats a change not yet read back, or
+    sends the wrong direction against a stale value (subwoofer).
     """
     await setup_denonavr(hass)
-    entity_id = get_entity_id(entity_registry, SWITCH_DOMAIN, "auto_lip_sync")
+    entity_id = get_entity_id(entity_registry, SWITCH_DOMAIN, key)
 
     await hass.services.async_call(
         SWITCH_DOMAIN,
@@ -705,12 +728,15 @@ async def test_set_auto_lip_sync(
 
     getattr(client, called).assert_awaited_once()
     getattr(client, not_called).assert_not_awaited()
-    client.async_auto_lip_sync_toggle.assert_not_awaited()
+    getattr(client, toggle).assert_not_awaited()
 
 
 @pytest.mark.parametrize(
     ("key", "command"),
-    [pytest.param("auto_lip_sync", "async_auto_lip_sync_off", id="auto_lip_sync")],
+    [
+        pytest.param("auto_lip_sync", "async_auto_lip_sync_off", id="auto_lip_sync"),
+        pytest.param("subwoofer", "async_subwoofer_off", id="subwoofer"),
+    ],
 )
 async def test_any_zone_setting_sent_with_only_zone2_on(
     hass: HomeAssistant,
@@ -765,3 +791,37 @@ async def test_auto_lip_sync_follows_its_telnet_push(
     fire_telnet_event("Main", event, parameter)
 
     assert hass.states.get(entity_id).state == STATE_OFF
+
+
+@pytest.mark.parametrize(
+    ("subwoofer_adjustable", "subwoofer", "expected"),
+    [
+        pytest.param(True, True, STATE_ON, id="output_on"),
+        pytest.param(True, False, STATE_OFF, id="output_off"),
+        pytest.param(True, None, STATE_UNAVAILABLE, id="parameter_unreadable"),
+        pytest.param(False, None, STATE_UNAVAILABLE, id="not_adjustable"),
+        pytest.param(None, None, STATE_UNAVAILABLE, id="never_read"),
+        pytest.param(False, True, STATE_UNAVAILABLE, id="not_adjustable_with_a_value"),
+        pytest.param(None, True, STATE_UNAVAILABLE, id="never_read_with_a_value"),
+    ],
+)
+async def test_subwoofer_state(
+    hass: HomeAssistant,
+    client: MagicMock,
+    entity_registry: er.EntityRegistry,
+    subwoofer_adjustable: bool | None,
+    subwoofer: bool | None,
+    expected: str,
+) -> None:
+    """The output needs the adjustable flag and a value, and a value alone is not enough.
+
+    Telnet reports the stored state even outside Stereo, where the receiver
+    ignores a write.
+    """
+    client.subwoofer_adjustable = subwoofer_adjustable
+    client.subwoofer = subwoofer
+    await setup_denonavr(hass)
+
+    state = hass.states.get(get_entity_id(entity_registry, SWITCH_DOMAIN, "subwoofer"))
+    assert state
+    assert state.state == expected
