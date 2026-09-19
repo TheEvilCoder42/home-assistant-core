@@ -7,7 +7,8 @@ from typing import Any, override
 from denonavr import DenonAVR
 
 from homeassistant.components.number import NumberEntity, NumberEntityDescription
-from homeassistant.core import HomeAssistant
+from homeassistant.const import EntityCategory, UnitOfSoundPressure
+from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
 from . import DenonavrConfigEntry
@@ -38,6 +39,46 @@ class DenonAvrNumberEntityDescription(NumberEntityDescription):
 
 NUMBER_TYPES: tuple[DenonAvrNumberEntityDescription, ...] = ()
 
+# denonavr names the subwoofers "Subwoofer", "Subwoofer 2" and so on, while
+# the entity wants the plain number. Which ones exist is read from the
+# receiver, never from this map.
+SUBWOOFER_NUMBERS: dict[str, int] = {
+    "Subwoofer": 1,
+    "Subwoofer 2": 2,
+    "Subwoofer 3": 3,
+    "Subwoofer 4": 4,
+}
+
+
+def _nearest_half_decibel(value: float) -> float:
+    """Round to the half decibel the receiver's level scale is built on."""
+    return round(value * 2) / 2
+
+
+def _subwoofer_level_description(subwoofer: str) -> DenonAvrNumberEntityDescription:
+    """Describe the level entity for one of the receiver's subwoofers."""
+    number = SUBWOOFER_NUMBERS[subwoofer]
+    return DenonAvrNumberEntityDescription(
+        key=f"subwoofer_level_{number}",
+        translation_key="subwoofer_level",
+        translation_placeholders={"subwoofer": str(number)},
+        native_unit_of_measurement=UnitOfSoundPressure.DECIBEL,
+        native_min_value=-12,
+        native_max_value=12,
+        native_step=0.5,
+        entity_category=EntityCategory.CONFIG,
+        # subwoofer_level(), never subwoofer_levels[...]: the dict is None
+        # while the level-adjust menu is off and loses the key of a subwoofer
+        # that stops being reported, neither of which the gate below covers.
+        value_fn=lambda receiver: receiver.subwoofer_level(subwoofer),
+        set_fn=lambda receiver, value: receiver.async_set_subwoofer_level(
+            subwoofer, _nearest_half_decibel(value)
+        ),
+        # is not False, not truthiness: None is a model that never reports
+        # the flag, which is no reason to disable the entity.
+        available_fn=lambda receiver: receiver.subwoofer_level_status is not False,
+    )
+
 
 async def async_setup_entry(
     hass: HomeAssistant,
@@ -45,8 +86,39 @@ async def async_setup_entry(
     async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Set up the DenonAVR number entities from a config entry."""
+    data = config_entry.runtime_data
+    known_subwoofers: set[str] = set()
+
+    @callback
+    def add_reported_subwoofer_levels() -> None:
+        """Add a level entity for each subwoofer the receiver newly reports.
+
+        The readable set is gated on a signal being present and on
+        subwoofer output being on, so it can't be built at setup and it
+        moves between refreshes. Entities are never removed: a
+        subwoofer that drops out of the response reads unknown,
+        which is easier to make sense of than one that disappears.
+        """
+        reported = data.receiver.subwoofer_levels or {}
+        new_subwoofers = [
+            subwoofer
+            for subwoofer in reported
+            if subwoofer in SUBWOOFER_NUMBERS and subwoofer not in known_subwoofers
+        ]
+        if not new_subwoofers:
+            return
+        known_subwoofers.update(new_subwoofers)
+        async_add_entities(
+            DenonAvrNumber(config_entry, _subwoofer_level_description(subwoofer))
+            for subwoofer in new_subwoofers
+        )
+
     async_add_entities(
         DenonAvrNumber(config_entry, description) for description in NUMBER_TYPES
+    )
+    add_reported_subwoofer_levels()
+    config_entry.async_on_unload(
+        data.coordinator.async_add_listener(add_reported_subwoofer_levels)
     )
 
 
