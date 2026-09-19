@@ -39,6 +39,9 @@
     "number": {
       "audio_delay": {
         "name": "Audio delay"
+      },
+      "lfe_level": {
+        "name": "LFE attenuation"
       }
     },
     "select": {
