@@ -593,6 +593,11 @@ async def test_simple_command_wrappers(
         pytest.param(
             SERVICE_SELECT_SOURCE, {ATTR_INPUT_SOURCE: "AUX"}, id="select_source"
         ),
+        pytest.param(
+            SERVICE_SELECT_SOUND_MODE,
+            {ATTR_SOUND_MODE: "Music"},
+            id="select_sound_mode",
+        ),
     ],
 )
 async def test_switching_command_rereads_status_once_settled(
@@ -602,7 +607,7 @@ async def test_switching_command_rereads_status_once_settled(
     service: str,
     service_data: dict[str, str],
 ) -> None:
-    """A source change is read again once the receiver has switched.
+    """A source or sound mode change is read again once the receiver has switched.
 
     The confirming read straight after the command still gets the old value.
     """
@@ -633,6 +638,12 @@ async def test_switching_command_rereads_status_once_settled(
             {ATTR_INPUT_SOURCE: "AUX"},
             "async_set_input_func",
             id="select_source",
+        ),
+        pytest.param(
+            SERVICE_SELECT_SOUND_MODE,
+            {ATTR_SOUND_MODE: "Music"},
+            "async_set_sound_mode",
+            id="select_sound_mode",
         ),
     ],
 )
