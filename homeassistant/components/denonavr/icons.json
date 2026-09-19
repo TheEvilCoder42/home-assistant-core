@@ -3,6 +3,9 @@
     "number": {
       "lfe_level": {
         "default": "mdi:sine-wave"
+      },
+      "subwoofer_level": {
+        "default": "mdi:tune-vertical"
       }
     },
     "select": {
