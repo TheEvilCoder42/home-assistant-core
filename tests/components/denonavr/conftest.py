@@ -73,4 +73,10 @@ def client_fixture() -> Generator[MagicMock]:
         mock_client_class.return_value.eco_mode = "Auto"
         mock_client_class.return_value.dimmer = "Bright"
         mock_client_class.return_value.auto_standby = "OFF"
+        # A receiver reporting no subwoofer level at all, which is
+        # what an idle one does - the tests that want the entities set
+        # this themselves. Left as an auto-generated MagicMock the
+        # platform would try to iterate it.
+        mock_client_class.return_value.subwoofer_levels = None
+        mock_client_class.return_value.subwoofer_level_status = True
         yield mock_client_class.return_value
