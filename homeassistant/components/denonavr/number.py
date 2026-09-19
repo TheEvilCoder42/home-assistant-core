@@ -1,6 +1,6 @@
 """Support for Denon AVR number entities."""
 
-from collections.abc import Callable, Coroutine
+from collections.abc import Callable, Coroutine, Iterable
 from dataclasses import dataclass
 from typing import Any, override
 
@@ -14,6 +14,7 @@ from homeassistant.components.number import (
 from homeassistant.const import EntityCategory, UnitOfSoundPressure, UnitOfTime
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
+from homeassistant.util import slugify
 
 from . import DenonavrConfigEntry
 from .entity import DenonAvrPendingValueEntity
@@ -109,6 +110,30 @@ def _subwoofer_level_description(subwoofer: str) -> DenonAvrNumberEntityDescript
     )
 
 
+def _channel_level_description(channel: str) -> DenonAvrNumberEntityDescription:
+    """Describe the level entity for one of the receiver's channels.
+
+    The name is denonavr's, such as "Front Left", so every channel it maps
+    gets an entity; each has its own translation key, so the name is
+    translated as the receiver's menus are.
+    """
+    key = f"channel_level_{slugify(channel)}"
+    return DenonAvrNumberEntityDescription(
+        key=key,
+        translation_key=key,
+        native_unit_of_measurement=UnitOfSoundPressure.DECIBEL,
+        native_min_value=-12,
+        native_max_value=12,
+        native_step=0.5,
+        entity_category=EntityCategory.CONFIG,
+        entity_registry_enabled_default=False,
+        # channel_volume(), never channel_volumes[...]: the dict is None
+        # while nothing plays and loses the key of an unreported channel.
+        value_fn=lambda receiver: receiver.channel_volume(channel),
+        set_fn=lambda receiver, value: receiver.async_channel_volume(channel, value),
+    )
+
+
 async def async_setup_entry(
     hass: HomeAssistant,
     config_entry: DenonavrConfigEntry,
@@ -117,37 +142,50 @@ async def async_setup_entry(
     """Set up the DenonAVR number entities from a config entry."""
     data = config_entry.runtime_data
     known_subwoofers: set[str] = set()
+    known_channels: set[str] = set()
+
+    def add_newly_reported(
+        known: set[str],
+        reported: Iterable[str],
+        describe: Callable[[str], DenonAvrNumberEntityDescription],
+    ) -> None:
+        """Add an entity for each reported name not already known."""
+        if not (new_names := [name for name in reported if name not in known]):
+            return
+        known.update(new_names)
+        async_add_entities(
+            DenonAvrNumber(config_entry, describe(name)) for name in new_names
+        )
 
     @callback
-    def add_reported_subwoofer_levels() -> None:
-        """Add a level entity for each subwoofer the receiver newly reports.
+    def add_reported_levels() -> None:
+        """Add the level entities for whatever the receiver newly reports.
 
-        The readable set is gated on a signal being present and on
-        subwoofer output being on, so it can't be built at setup and it
-        moves between refreshes. Entities are never removed: a
-        subwoofer that drops out of the response reads unknown,
-        which is easier to make sense of than one that disappears.
+        Neither set can be built at setup: both need audio playing, and the
+        channels move with the input source and the sound mode on top. None
+        are ever removed - one that drops out reads unknown instead.
         """
-        reported = data.receiver.subwoofer_levels or {}
-        new_subwoofers = [
-            subwoofer
-            for subwoofer in reported
-            if subwoofer in SUBWOOFER_NUMBERS and subwoofer not in known_subwoofers
-        ]
-        if not new_subwoofers:
-            return
-        known_subwoofers.update(new_subwoofers)
-        async_add_entities(
-            DenonAvrNumber(config_entry, _subwoofer_level_description(subwoofer))
-            for subwoofer in new_subwoofers
+        add_newly_reported(
+            known_subwoofers,
+            [
+                subwoofer
+                for subwoofer in data.receiver.subwoofer_levels or {}
+                if subwoofer in SUBWOOFER_NUMBERS
+            ],
+            _subwoofer_level_description,
+        )
+        add_newly_reported(
+            known_channels,
+            data.receiver.channel_volumes or {},
+            _channel_level_description,
         )
 
     async_add_entities(
         DenonAvrNumber(config_entry, description) for description in NUMBER_TYPES
     )
-    add_reported_subwoofer_levels()
+    add_reported_levels()
     config_entry.async_on_unload(
-        data.coordinator.async_add_internal_listener(add_reported_subwoofer_levels)
+        data.coordinator.async_add_internal_listener(add_reported_levels)
     )
 
 

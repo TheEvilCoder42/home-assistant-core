@@ -1,6 +1,108 @@
 {
   "entity": {
     "number": {
+      "channel_level_back_dolby_left": {
+        "default": "mdi:tune-vertical"
+      },
+      "channel_level_back_dolby_right": {
+        "default": "mdi:tune-vertical"
+      },
+      "channel_level_center": {
+        "default": "mdi:tune-vertical"
+      },
+      "channel_level_center_height": {
+        "default": "mdi:tune-vertical"
+      },
+      "channel_level_front_dolby_left": {
+        "default": "mdi:tune-vertical"
+      },
+      "channel_level_front_dolby_right": {
+        "default": "mdi:tune-vertical"
+      },
+      "channel_level_front_height_left": {
+        "default": "mdi:tune-vertical"
+      },
+      "channel_level_front_height_right": {
+        "default": "mdi:tune-vertical"
+      },
+      "channel_level_front_left": {
+        "default": "mdi:tune-vertical"
+      },
+      "channel_level_front_right": {
+        "default": "mdi:tune-vertical"
+      },
+      "channel_level_front_wide_left": {
+        "default": "mdi:tune-vertical"
+      },
+      "channel_level_front_wide_right": {
+        "default": "mdi:tune-vertical"
+      },
+      "channel_level_rear_height_left": {
+        "default": "mdi:tune-vertical"
+      },
+      "channel_level_rear_height_right": {
+        "default": "mdi:tune-vertical"
+      },
+      "channel_level_subwoofer": {
+        "default": "mdi:tune-vertical"
+      },
+      "channel_level_subwoofer_2": {
+        "default": "mdi:tune-vertical"
+      },
+      "channel_level_subwoofer_3": {
+        "default": "mdi:tune-vertical"
+      },
+      "channel_level_subwoofer_4": {
+        "default": "mdi:tune-vertical"
+      },
+      "channel_level_surround_back": {
+        "default": "mdi:tune-vertical"
+      },
+      "channel_level_surround_back_left": {
+        "default": "mdi:tune-vertical"
+      },
+      "channel_level_surround_back_right": {
+        "default": "mdi:tune-vertical"
+      },
+      "channel_level_surround_dolby_left": {
+        "default": "mdi:tune-vertical"
+      },
+      "channel_level_surround_dolby_right": {
+        "default": "mdi:tune-vertical"
+      },
+      "channel_level_surround_height_left": {
+        "default": "mdi:tune-vertical"
+      },
+      "channel_level_surround_height_right": {
+        "default": "mdi:tune-vertical"
+      },
+      "channel_level_surround_left": {
+        "default": "mdi:tune-vertical"
+      },
+      "channel_level_surround_right": {
+        "default": "mdi:tune-vertical"
+      },
+      "channel_level_top_front_left": {
+        "default": "mdi:tune-vertical"
+      },
+      "channel_level_top_front_right": {
+        "default": "mdi:tune-vertical"
+      },
+      "channel_level_top_middle_left": {
+        "default": "mdi:tune-vertical"
+      },
+      "channel_level_top_middle_right": {
+        "default": "mdi:tune-vertical"
+      },
+      "channel_level_top_rear_left": {
+        "default": "mdi:tune-vertical"
+      },
+      "channel_level_top_rear_right": {
+        "default": "mdi:tune-vertical"
+      },
+      "channel_level_top_surround": {
+        "default": "mdi:tune-vertical"
+      },
       "lfe_level": {
         "default": "mdi:sine-wave"
       },

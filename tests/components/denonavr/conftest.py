@@ -78,10 +78,12 @@ def client_fixture() -> Generator[MagicMock]:
         client.lfe_adjustable = True
         client.subwoofer = True
         client.subwoofer_adjustable = True
-        # An idle receiver reports no levels; an auto-generated MagicMock
-        # would be iterated by the platform.
+        # An idle receiver reports no level of either kind, so the tests that
+        # want the dynamically added entities set these themselves. An
+        # auto-generated MagicMock would be iterated by the platform.
         client.subwoofer_levels = None
         client.subwoofer_level_status = True
+        client.channel_volumes = None
         yield client
 
 
