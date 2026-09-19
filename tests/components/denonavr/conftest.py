@@ -2,9 +2,10 @@
 
 from collections import defaultdict
 from collections.abc import Callable, Generator
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, create_autospec, patch
 
-from denonavr.const import ALL_TELNET_EVENTS, POWER_ON
+from denonavr import DenonAVR
+from denonavr.const import ALL_TELNET_EVENTS, POWER_ON, ZONE2
 import pytest
 
 from . import (
@@ -58,6 +59,10 @@ def client_fixture() -> Generator[MagicMock]:
         client.zones = {TEST_ZONE: client}
         client.telnet_connected = False
         client.telnet_healthy = False
+        client.volume = -40.0
+        # Reported, and no volume limit configured, which the library reads as 18.0.
+        client.max_volume = 18.0
+        client.max_volume_known = True
         client.dynamic_eq = True
         client.reference_level_offset = "0dB"
         client.dynamic_volume = "Off"
@@ -73,6 +78,33 @@ def client_fixture() -> Generator[MagicMock]:
         client.dimmer = "Bright"
         client.auto_standby = "OFF"
         yield client
+
+
+def _add_zone(client: MagicMock, zone: str) -> MagicMock:
+    """Give the mocked receiver a secondary zone, and return that zone's object.
+
+    A zone is its own receiver object in the library, holding its own
+    copy of every per-zone value, so a zone entity has to be given it
+    rather than the main one.
+    """
+    zone_client = create_autospec(DenonAVR, instance=True)
+    zone_client.name = f"{TEST_NAME} {zone}"
+    zone_client.host = TEST_HOST
+    zone_client.zone = zone
+    zone_client.input_func_list = []
+    zone_client.sound_mode_list = []
+    zone_client.power = POWER_ON
+    zone_client.volume = -40.0
+    zone_client.max_volume = 18.0
+    zone_client.max_volume_known = True
+    client.zones = {**client.zones, zone: zone_client}
+    return zone_client
+
+
+@pytest.fixture(name="zone2_client")
+def zone2_client_fixture(client: MagicMock) -> MagicMock:
+    """Give the mocked receiver a Zone 2, and return that zone's object."""
+    return _add_zone(client, ZONE2)
 
 
 @pytest.fixture

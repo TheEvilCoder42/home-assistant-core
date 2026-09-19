@@ -202,7 +202,7 @@ async def test_unload_removes_disabled_zone_entity(
 
     Simulates a stray leftover entity from when the zone option was
     previously enabled - the real zone-creation path isn't exercised
-    here since the client mock always reports a single "Main" zone.
+    here since the default client mock reports a single "Main" zone.
     """
     entry = await setup_denonavr(hass, options={zone_option: False})
 
