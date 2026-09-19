@@ -1,5 +1,7 @@
 """Constants for Denon AVR."""
 
+from denonavr.const import ZONE2, ZONE3
+
 DOMAIN = "denonavr"
 
 ATTR_DYNAMIC_EQ = "dynamic_eq"
@@ -32,3 +34,7 @@ ACTION_REFRESH_DEBOUNCE_COOLDOWN = 0.5
 # The event group the Audyssey settings arrive in. __init__.py notifies the
 # Audyssey coordinator on it, whether or not media_player is enabled.
 AUDYSSEY_TELNET_EVENT = "PS"
+
+# The zone number in the name of a secondary zone's entities. The word
+# "Zone" stays in the translated string; the main zone's entities have no number.
+ZONE_NUMBERS = {ZONE2: "2", ZONE3: "3"}

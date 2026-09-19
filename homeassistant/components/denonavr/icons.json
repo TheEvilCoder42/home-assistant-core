@@ -19,6 +19,12 @@
       },
       "reference_level_offset": {
         "default": "mdi:tune-vertical"
+      },
+      "volume_limit": {
+        "default": "mdi:volume-high"
+      },
+      "zone_volume_limit": {
+        "default": "mdi:volume-high"
       }
     },
     "switch": {
