@@ -43,6 +43,9 @@
       },
       "lfe_level": {
         "name": "LFE attenuation"
+      },
+      "subwoofer_level": {
+        "name": "Subwoofer {subwoofer} level adjust"
       }
     },
     "select": {
