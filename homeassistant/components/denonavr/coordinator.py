@@ -8,6 +8,7 @@ still be refreshable on demand without joining every status refresh.
 import asyncio
 from datetime import timedelta
 import logging
+import time
 from typing import Protocol, override
 
 from denonavr import DenonAVR
@@ -46,12 +47,18 @@ async def async_refresh_status(receiver: DenonAVR, *, force: bool = False) -> No
     Skipped while Telnet is healthy; that state lives on the device, not per
     zone. force=True bypasses the skip. Only connectivity errors abort the
     remaining zones, and they re-raise to fail the whole update.
+
+    One cache id covers the loop: the AppCommand.xml body carries no zone, so
+    every zone would otherwise post the same bytes for the same answer. It has
+    to be new each poll or the zones are handed the previous status. Status XML
+    receivers name the zone in the URL and stay one request each.
     """
     if not force and receiver.telnet_connected and receiver.telnet_healthy:
         return
+    cache_id = time.monotonic()
     for zone_receiver in receiver.zones.values():
         try:
-            await zone_receiver.async_update()
+            await zone_receiver.async_update(cache_id=cache_id)
         except UNAVAILABLE_ON:
             raise
         except DenonAvrError as err:
