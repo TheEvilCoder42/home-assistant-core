@@ -32,6 +32,18 @@
       }
     }
   },
+  "entity": {
+    "switch": {
+      "dynamic_eq": {
+        "name": "Audyssey Dynamic EQ"
+      }
+    }
+  },
+  "exceptions": {
+    "set_failed": {
+      "message": "Setting {entity_id} to {value} failed on {host}: {error}"
+    }
+  },
   "options": {
     "step": {
       "init": {

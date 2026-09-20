@@ -224,11 +224,14 @@ class DenonAvrDataUpdateCoordinator(DataUpdateCoordinator[None]):
     async def async_refresh_forced(self) -> None:
         """Refresh immediately, bypassing the Telnet-healthy skip.
 
-        Overlapping callers join the refresh in flight. Its own lock, not the
-        receiver's: async_refresh() reaches the debouncer lock only after the
-        bypass flag is set, so concurrent callers would clear it for each
-        other and the later one would skip. Taken before the debouncer and
-        receiver locks, never after.
+        Overlapping callers join the refresh in flight. Sound for a pending
+        value, which outlives a refresh: one still running when the expiry
+        fires started well after the command it has to confirm.
+
+        Its own lock, not the receiver's: async_refresh() reaches the
+        debouncer lock only after the bypass flag is set, so concurrent
+        callers would clear it for each other and the later one would skip.
+        Taken before the debouncer and receiver locks, never after.
         """
         joined = self._forced_refresh_count
         async with self._force_refresh_lock:
