@@ -36,24 +36,20 @@ from homeassistant.components.media_player import (
 )
 from homeassistant.const import CONF_HOST, CONF_MODEL, CONF_TYPE
 from homeassistant.core import HomeAssistant
+from homeassistant.exceptions import ServiceValidationError
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from . import DenonavrConfigEntry
-from .const import (
-    ATTR_DYNAMIC_EQ,
-    CONF_MANUFACTURER,
-    CONF_SERIAL_NUMBER,
-    DOMAIN,
-    TELNET_EVENTS,
-)
+from .const import ATTR_DYNAMIC_EQ, CONF_MANUFACTURER, DOMAIN, TELNET_EVENTS
 from .coordinator import (
     UNAVAILABLE_ON,
     DenonAvrDataUpdateCoordinator,
     async_update_zone_audyssey,
     mark_unavailable,
 )
+from .entity import receiver_unique_id
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -95,23 +91,18 @@ async def async_setup_entry(
     async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Set up the DenonAVR receiver from a config entry."""
-    entities = []
     data = config_entry.runtime_data
     receiver = data.receiver
-    for receiver_zone in receiver.zones.values():
-        if config_entry.data[CONF_SERIAL_NUMBER] is not None:
-            unique_id = f"{config_entry.unique_id}-{receiver_zone.zone}"
-        else:
-            unique_id = f"{config_entry.entry_id}-{receiver_zone.zone}"
-        entities.append(
-            DenonDevice(
-                data.coordinator,
-                data.audyssey_coordinator,
-                receiver_zone,
-                unique_id,
-                config_entry,
-            )
+    entities = [
+        DenonDevice(
+            data.coordinator,
+            data.audyssey_coordinator,
+            receiver_zone,
+            receiver_unique_id(config_entry, receiver_zone.zone),
+            config_entry,
         )
+        for receiver_zone in receiver.zones.values()
+    ]
     _LOGGER.debug(
         "%s receiver at host %s initialized", receiver.manufacturer, receiver.host
     )
@@ -533,6 +524,13 @@ class DenonDevice(CoordinatorEntity[DenonAvrDataUpdateCoordinator], MediaPlayerE
     @async_log_errors
     async def async_set_dynamic_eq(self, dynamic_eq: bool) -> None:
         """Turn DynamicEQ on or off."""
+        # The main zone's power even on a zone's player: Dynamic EQ follows it.
+        if self.coordinator.receiver.power not in (None, POWER_ON):
+            raise ServiceValidationError(
+                translation_domain=DOMAIN,
+                translation_key="receiver_off",
+                translation_placeholders={"entity_id": self.entity_id},
+            )
         try:
             if dynamic_eq:
                 await self._receiver.async_dynamic_eq_on()

@@ -2,12 +2,13 @@
 
 import asyncio
 from collections.abc import Generator
+from contextlib import AbstractContextManager, nullcontext as does_not_raise
 from datetime import timedelta
 import logging
 from unittest.mock import MagicMock, create_autospec, patch
 
 from denonavr import DenonAVR
-from denonavr.const import POWER_ON
+from denonavr.const import POWER_OFF, POWER_ON, POWER_STANDBY
 from denonavr.exceptions import (
     AvrCommandError,
     AvrForbiddenError,
@@ -30,6 +31,7 @@ from homeassistant.components.denonavr.const import (
     ATTR_DYNAMIC_EQ,
     CONF_UPDATE_AUDYSSEY,
     CONF_USE_TELNET,
+    CONF_ZONE2,
 )
 from homeassistant.components.denonavr.coordinator import mark_unavailable
 from homeassistant.components.denonavr.services import (
@@ -49,6 +51,7 @@ from homeassistant.const import (
     STATE_UNKNOWN,
 )
 from homeassistant.core import HomeAssistant
+from homeassistant.exceptions import ServiceValidationError
 from homeassistant.helpers import device_registry as dr
 from homeassistant.setup import async_setup_component
 
@@ -85,6 +88,7 @@ def client_fixture() -> Generator[MagicMock]:
         mock_client_class.return_value.manufacturer = TEST_MANUFACTURER
         mock_client_class.return_value.receiver_type = TEST_RECEIVER_TYPE
         mock_client_class.return_value.zone = TEST_ZONE
+        mock_client_class.return_value.power = POWER_ON
         mock_client_class.return_value.input_func_list = []
         mock_client_class.return_value.sound_mode_list = []
         mock_client_class.return_value.zones = {"Main": mock_client_class.return_value}
@@ -267,7 +271,6 @@ async def test_dynamic_eq_attribute_updates_from_audyssey_coordinator(
     coordinator alone, which is not the one that fetches Audyssey data.
     """
     entry = await setup_denonavr(hass)
-    client.power = POWER_ON
     client.dynamic_eq = True
     entry.runtime_data.audyssey_coordinator.async_update_listeners()
     await hass.async_block_till_done()
@@ -324,6 +327,99 @@ async def test_dynamic_eq(hass: HomeAssistant, client: MagicMock) -> None:
 
     client.async_dynamic_eq_on.assert_called_once()
     client.async_dynamic_eq_off.assert_called_once()
+
+
+@pytest.mark.parametrize(
+    "power",
+    [
+        pytest.param(POWER_STANDBY, id="standby"),
+        pytest.param(POWER_OFF, id="off"),
+    ],
+)
+async def test_set_dynamic_eq_refused_while_the_main_zone_is_off(
+    hass: HomeAssistant, client: MagicMock, power: str
+) -> None:
+    """The receiver answers the write and drops it, so it is refused unsent."""
+    await setup_denonavr(hass)
+    client.power = power
+
+    with pytest.raises(ServiceValidationError) as err:
+        await hass.services.async_call(
+            DOMAIN,
+            SERVICE_SET_DYNAMIC_EQ,
+            {ATTR_ENTITY_ID: ENTITY_ID, ATTR_DYNAMIC_EQ: True},
+            blocking=True,
+        )
+
+    assert err.value.translation_key == "receiver_off"
+    assert (
+        str(err.value)
+        == "Cannot change media_player.test_receiver while the zone it applies to is off"
+    )
+    client.async_dynamic_eq_on.assert_not_awaited()
+
+
+async def test_set_dynamic_eq_sent_while_the_power_is_unknown(
+    hass: HomeAssistant, client: MagicMock
+) -> None:
+    """A power not read yet lets the write through."""
+    await setup_denonavr(hass)
+    client.power = None
+
+    await hass.services.async_call(
+        DOMAIN,
+        SERVICE_SET_DYNAMIC_EQ,
+        {ATTR_ENTITY_ID: ENTITY_ID, ATTR_DYNAMIC_EQ: True},
+        blocking=True,
+    )
+
+    client.async_dynamic_eq_on.assert_awaited_once()
+
+
+@pytest.mark.parametrize(
+    ("main_power", "zone2_power", "expectation", "awaits"),
+    [
+        pytest.param(
+            POWER_OFF,
+            POWER_ON,
+            pytest.raises(
+                ServiceValidationError,
+                check=lambda err: err.translation_key == "receiver_off",
+            ),
+            0,
+            id="main_off_zone2_on",
+        ),
+        pytest.param(POWER_ON, POWER_OFF, does_not_raise(), 1, id="main_on_zone2_off"),
+    ],
+)
+async def test_set_dynamic_eq_on_zone2_reads_the_main_zone_power(
+    hass: HomeAssistant,
+    client: MagicMock,
+    main_power: str,
+    zone2_power: str,
+    expectation: AbstractContextManager,
+    awaits: int,
+) -> None:
+    """Zone 2's player checks the main zone's power: Dynamic EQ follows it."""
+    zone2 = create_autospec(DenonAVR, instance=True)
+    zone2.name = TEST_NAME
+    zone2.zone = "Zone2"
+    zone2.input_func_list = []
+    zone2.sound_mode_list = []
+    client.zones = {TEST_ZONE: client, "Zone2": zone2}
+    await setup_denonavr(hass, options={CONF_ZONE2: True})
+    client.power = main_power
+    zone2.power = zone2_power
+
+    with expectation:
+        await hass.services.async_call(
+            DOMAIN,
+            SERVICE_SET_DYNAMIC_EQ,
+            {ATTR_ENTITY_ID: "media_player.test_receiver_2", ATTR_DYNAMIC_EQ: True},
+            blocking=True,
+        )
+
+    assert zone2.async_dynamic_eq_on.await_count == awaits
 
 
 @pytest.mark.parametrize(
