@@ -62,9 +62,11 @@ class DenonAvrPendingValueEntity[_T](CoordinatorEntity[DenonAvrDataUpdateCoordin
         config_entry: DenonavrConfigEntry,
         key: str,
         follows_other_coordinator: bool = False,
+        any_zone_on: bool = False,
     ) -> None:
         """Initialize the entity on the receiver's device."""
         super().__init__(coordinator)
+        self._any_zone_on = any_zone_on
         self._data = config_entry.runtime_data
         self._follows_other_coordinator = follows_other_coordinator
         self._receiver = coordinator.receiver
@@ -107,8 +109,9 @@ class DenonAvrPendingValueEntity[_T](CoordinatorEntity[DenonAvrDataUpdateCoordin
     def _async_handle_pending_expiry(self, _now: Any) -> None:
         """Give up on an unconfirmed pending value and read the receiver.
 
-        The Audyssey poll is off by default, so without this the state could
-        keep showing the pending value with nothing left to correct it.
+        No poll is guaranteed to follow: the Audyssey one is off by default
+        and polling can be disabled, so without this the state could keep
+        showing the pending value with nothing left to correct it.
         Forced, because expiry means no Telnet push confirmed the value and
         the Telnet-healthy skip would drop the read meant to replace it.
         """
@@ -162,8 +165,14 @@ class DenonAvrPendingValueEntity[_T](CoordinatorEntity[DenonAvrDataUpdateCoordin
         """Return whether the receiver is known to be off.
 
         Off, it answers a setting write OK and drops it. A power not read
-        yet lets the write through.
+        yet lets the write through. A setting the receiver applies with any
+        zone on is refused only while every zone is off.
         """
+        if self._any_zone_on:
+            return all(
+                zone.power not in (None, POWER_ON)
+                for zone in self._data.receiver.zones.values()
+            )
         return self._receiver.power not in (None, POWER_ON)
 
     async def _async_apply_change(

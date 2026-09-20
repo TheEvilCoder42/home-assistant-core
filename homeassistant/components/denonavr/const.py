@@ -32,20 +32,3 @@ ACTION_REFRESH_DEBOUNCE_COOLDOWN = 0.5
 # The event group the Audyssey settings arrive in. __init__.py notifies the
 # Audyssey coordinator on it, whether or not media_player is enabled.
 AUDYSSEY_TELNET_EVENT = "PS"
-
-# Telnet events relevant to media_player.py's own state.
-TELNET_EVENTS = {
-    "HD",
-    "MS",
-    "MU",
-    "MV",
-    "NS",
-    "NSE",
-    "PS",
-    "SI",
-    "SS",
-    "TF",
-    "ZM",
-    "Z2",
-    "Z3",
-}

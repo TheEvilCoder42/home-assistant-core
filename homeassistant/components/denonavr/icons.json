@@ -1,5 +1,25 @@
 {
   "entity": {
+    "select": {
+      "auto_standby": {
+        "default": "mdi:timer-outline"
+      },
+      "dimmer": {
+        "default": "mdi:brightness-6"
+      },
+      "dynamic_volume": {
+        "default": "mdi:volume-vibrate"
+      },
+      "eco_mode": {
+        "default": "mdi:leaf"
+      },
+      "multi_eq": {
+        "default": "mdi:equalizer"
+      },
+      "reference_level_offset": {
+        "default": "mdi:tune-vertical"
+      }
+    },
     "switch": {
       "dynamic_eq": {
         "default": "mdi:auto-fix"
