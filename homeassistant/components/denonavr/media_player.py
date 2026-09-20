@@ -7,8 +7,6 @@ from typing import Any, Concatenate, override
 
 from denonavr import DenonAVR
 from denonavr.const import (
-    ALL_TELNET_EVENTS,
-    ALL_ZONES,
     POWER_ON,
     STATE_OFF,
     STATE_ON,
@@ -41,13 +39,7 @@ from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from . import DenonavrConfigEntry
-from .const import (
-    ATTR_DYNAMIC_EQ,
-    CONF_MANUFACTURER,
-    CONF_SERIAL_NUMBER,
-    DOMAIN,
-    TELNET_EVENTS,
-)
+from .const import ATTR_DYNAMIC_EQ, CONF_MANUFACTURER, CONF_SERIAL_NUMBER, DOMAIN
 from .coordinator import (
     UNAVAILABLE_ON,
     DenonAvrDataUpdateCoordinator,
@@ -240,28 +232,9 @@ class DenonDevice(CoordinatorEntity[DenonAvrDataUpdateCoordinator], MediaPlayerE
             and MediaPlayerEntityFeature.SELECT_SOUND_MODE
         )
 
-    def _telnet_callback(self, zone: str, event: str, parameter: str) -> None:
-        """Process a telnet command callback."""
-        # There are multiple checks implemented which reduce
-        # unnecessary updates of the ha state machine
-        if zone not in (self._receiver.zone, ALL_ZONES):
-            return
-        if event not in TELNET_EVENTS:
-            return
-        # Some updates trigger multiple events like one for
-        # artist and one for title for one change.
-        # We skip every event except the last one.
-        if event == "NSE" and not parameter.startswith("4"):
-            return
-        if event == "TA" and not parameter.startswith("ANNAME"):
-            return
-        if event == "HD" and not parameter.startswith("ALBUM"):
-            return
-        self.async_write_ha_state()
-
     @override
     async def async_added_to_hass(self) -> None:
-        """Register for coordinator updates and telnet events."""
+        """Register for coordinator updates."""
         await super().async_added_to_hass()
         # super() subscribes to the status coordinator only, but dynamic_eq
         # is Audyssey-scoped and would otherwise go stale.
@@ -270,14 +243,12 @@ class DenonDevice(CoordinatorEntity[DenonAvrDataUpdateCoordinator], MediaPlayerE
                 self._handle_coordinator_update
             )
         )
-        self._receiver.register_callback(ALL_TELNET_EVENTS, self._telnet_callback)
 
     @override
     async def async_will_remove_from_hass(self) -> None:
         """Clean up the entity."""
         if self._receiver.telnet_connected:
             await self._receiver.async_telnet_disconnect()
-        self._receiver.unregister_callback(ALL_TELNET_EVENTS, self._telnet_callback)
 
     @override
     async def async_update(self) -> None:

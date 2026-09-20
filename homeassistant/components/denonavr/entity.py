@@ -106,8 +106,9 @@ class DenonAvrPendingValueEntity[_T](CoordinatorEntity[DenonAvrDataUpdateCoordin
     def _async_handle_pending_expiry(self, _now: Any) -> None:
         """Give up on an unconfirmed pending value and read the receiver.
 
-        The Audyssey poll is off by default, so without this the state could
-        keep showing the pending value with nothing left to correct it.
+        No poll is guaranteed to follow: the Audyssey one is off by default
+        and polling can be disabled, so without this the state could keep
+        showing the pending value with nothing left to correct it.
         Forced, because expiry means no Telnet push confirmed the value and
         the Telnet-healthy skip would drop the read meant to replace it.
         """

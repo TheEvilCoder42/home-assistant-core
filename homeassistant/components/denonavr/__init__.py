@@ -6,6 +6,7 @@ from datetime import timedelta
 import logging
 
 from denonavr import DenonAVR
+from denonavr.const import ALL_TELNET_EVENTS
 from denonavr.exceptions import AvrRequestError
 
 from homeassistant.config_entries import ConfigEntry
@@ -42,7 +43,7 @@ from .receiver import ConnectDenonAVR
 from .services import async_setup_services
 
 CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
-PLATFORMS = [Platform.MEDIA_PLAYER, Platform.SWITCH]
+PLATFORMS = [Platform.MEDIA_PLAYER, Platform.SELECT, Platform.SWITCH]
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -164,8 +165,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: DenonavrConfigEntry) -> 
     def _telnet_notify_audyssey(zone: str, event: str, parameter: str) -> None:
         """Feed Telnet activity into the Audyssey coordinator.
 
-        On the receiver rather than on the media_player entity, whose
-        callback only runs while that entity is enabled.
+        On the receiver rather than on an entity, whose callback would
+        only run while that entity is enabled.
 
         A push is the receiver answering, so it clears an earlier
         connectivity failure: without "Update Audyssey settings" there is no
@@ -181,6 +182,31 @@ async def async_setup_entry(hass: HomeAssistant, entry: DenonavrConfigEntry) -> 
         lambda: receiver.unregister_callback(
             AUDYSSEY_TELNET_EVENT, _telnet_notify_audyssey
         )
+    )
+
+    @callback
+    def _telnet_notify_status(zone: str, event: str, parameter: str) -> None:
+        """Feed Telnet activity into the status coordinator.
+
+        Its poll skips while Telnet is healthy, so nothing else would follow
+        a push.
+
+        A push is the receiver answering, so it clears a failure. Not
+        async_set_updated_data(): that cancels an action's pending
+        confirmation refresh.
+        """
+        # A now-playing or HD Radio change arrives as one event per field:
+        # notifying on each would publish a new title with the old artist.
+        if (event == "NSE" and not parameter.startswith("4")) or (
+            event == "HD" and not parameter.startswith("ALBUM")
+        ):
+            return
+        coordinator.last_update_success = True
+        coordinator.async_update_listeners()
+
+    receiver.register_callback(ALL_TELNET_EVENTS, _telnet_notify_status)
+    entry.async_on_unload(
+        lambda: receiver.unregister_callback(ALL_TELNET_EVENTS, _telnet_notify_status)
     )
 
     entry.runtime_data = DenonAvrData(

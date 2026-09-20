@@ -20,6 +20,7 @@ from homeassistant.components.denonavr.const import (
     CONF_UPDATE_AUDYSSEY,
     PENDING_VALUE_TIMEOUT,
 )
+from homeassistant.components.select import DOMAIN as SELECT_DOMAIN
 from homeassistant.components.switch import DOMAIN as SWITCH_DOMAIN
 from homeassistant.const import (
     ATTR_ENTITY_ID,
@@ -279,6 +280,68 @@ async def test_turn_on_raises_on_avr_error(
     )
     assert entry.runtime_data.coordinator.last_update_success is available
     assert entry.runtime_data.audyssey_coordinator.last_update_success is available
+
+
+@pytest.mark.parametrize(
+    ("dynamic_eq", "switch_state", "select_state"),
+    [
+        pytest.param(True, STATE_ON, "0db", id="dynamic_eq_on"),
+        pytest.param(False, STATE_OFF, STATE_UNAVAILABLE, id="dynamic_eq_off"),
+    ],
+)
+async def test_reference_level_offset_agrees_with_switch_at_setup(
+    hass: HomeAssistant,
+    client: MagicMock,
+    entity_registry: er.EntityRegistry,
+    dynamic_eq: bool,
+    switch_state: str,
+    select_state: str,
+) -> None:
+    """Select and switch agree on Dynamic EQ state at setup time."""
+    client.dynamic_eq = dynamic_eq
+    client.reference_level_offset = "0dB"
+    await setup_denonavr(hass)
+
+    switch_entity_id = get_entity_id(entity_registry, SWITCH_DOMAIN, "dynamic_eq")
+    select_entity_id = get_entity_id(
+        entity_registry, SELECT_DOMAIN, "reference_level_offset"
+    )
+    assert hass.states.get(switch_entity_id).state == switch_state
+    assert hass.states.get(select_entity_id).state == select_state
+
+
+async def test_toggling_switch_updates_dependent_select(
+    hass: HomeAssistant, client: MagicMock, entity_registry: er.EntityRegistry
+) -> None:
+    """Toggling Audyssey Dynamic EQ off also updates Audyssey reference level offset.
+
+    Both entities share the Audyssey coordinator, so the refresh confirming
+    the switch's action notifies the select too.
+    """
+    client.reference_level_offset = "0dB"
+    await setup_denonavr(hass)
+
+    switch_entity_id = get_entity_id(entity_registry, SWITCH_DOMAIN, "dynamic_eq")
+    select_entity_id = get_entity_id(
+        entity_registry, SELECT_DOMAIN, "reference_level_offset"
+    )
+    assert hass.states.get(select_entity_id).state != STATE_UNAVAILABLE
+
+    async def _turn_off(*args: object, **kwargs: object) -> None:
+        client.dynamic_eq = False
+
+    client.async_dynamic_eq_off.side_effect = _turn_off
+
+    await hass.services.async_call(
+        SWITCH_DOMAIN,
+        SERVICE_TURN_OFF,
+        {ATTR_ENTITY_ID: switch_entity_id},
+        blocking=True,
+    )
+    await _wait_for_debounced_refresh(hass)
+
+    assert hass.states.get(switch_entity_id).state == STATE_OFF
+    assert hass.states.get(select_entity_id).state == STATE_UNAVAILABLE
 
 
 async def test_turn_on_shows_state_immediately_without_polling(

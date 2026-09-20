@@ -33,6 +33,65 @@
     }
   },
   "entity": {
+    "select": {
+      "auto_standby": {
+        "name": "Auto standby",
+        "state": {
+          "2h": "2 hours",
+          "4h": "4 hours",
+          "8h": "8 hours",
+          "15m": "15 minutes",
+          "30m": "30 minutes",
+          "60m": "60 minutes",
+          "off": "[%key:common::state::off%]"
+        }
+      },
+      "dimmer": {
+        "name": "Display dimmer",
+        "state": {
+          "bright": "Bright",
+          "dark": "Dark",
+          "dim": "Dim",
+          "off": "[%key:common::state::off%]"
+        }
+      },
+      "dynamic_volume": {
+        "name": "Audyssey Dynamic Volume",
+        "state": {
+          "heavy": "Heavy",
+          "light": "Light",
+          "medium": "[%key:common::state::medium%]",
+          "off": "[%key:common::state::off%]"
+        }
+      },
+      "eco_mode": {
+        "name": "Eco mode",
+        "state": {
+          "auto": "[%key:common::state::auto%]",
+          "off": "[%key:common::state::off%]",
+          "on": "[%key:common::state::on%]"
+        }
+      },
+      "multi_eq": {
+        "name": "Audyssey MultEQ",
+        "state": {
+          "flat": "Flat",
+          "l_r_bypass": "L/R bypass",
+          "manual": "[%key:common::state::manual%]",
+          "off": "[%key:common::state::off%]",
+          "reference": "Reference"
+        }
+      },
+      "reference_level_offset": {
+        "name": "Audyssey reference level offset",
+        "state": {
+          "0db": "0 dB",
+          "5db": "+5 dB",
+          "10db": "+10 dB",
+          "15db": "+15 dB"
+        }
+      }
+    },
     "switch": {
       "dynamic_eq": {
         "name": "Audyssey Dynamic EQ"

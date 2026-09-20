@@ -1,7 +1,7 @@
 """The tests for the denonavr media player platform."""
 
 import asyncio
-from collections.abc import Generator
+from collections.abc import Callable, Generator
 from datetime import timedelta
 from unittest.mock import MagicMock, create_autospec, patch
 
@@ -198,6 +198,37 @@ async def test_non_connectivity_error_does_not_mark_unavailable(
     )
 
     assert hass.states.get(ENTITY_ID).state != STATE_UNAVAILABLE
+
+
+@pytest.mark.parametrize(
+    ("event", "parameter", "writes"),
+    [
+        pytest.param("NSE", "1New title", 0, id="partial_now_playing"),
+        pytest.param("NSE", "4New album", 1, id="final_now_playing"),
+        pytest.param("HD", "ARTISTNew artist", 0, id="partial_hd_radio"),
+        pytest.param("HD", "ALBUMNew album", 1, id="final_hd_radio"),
+        pytest.param("MV", "50", 1, id="single_part"),
+    ],
+)
+async def test_telnet_push_writes_once_per_update(
+    hass: HomeAssistant,
+    fire_telnet_event: Callable[[str, str, str], None],
+    event: str,
+    parameter: str,
+    writes: int,
+) -> None:
+    """A Telnet push writes the state once, a multi-part one on its final part.
+
+    Writing each part would publish the new title with the old artist.
+    """
+    await setup_denonavr(hass)
+
+    with patch(
+        "homeassistant.components.denonavr.media_player.DenonDevice.async_write_ha_state"
+    ) as mock_write:
+        fire_telnet_event(TEST_ZONE, event, parameter)
+
+    assert mock_write.call_count == writes
 
 
 async def test_queued_commands_warn_once_when_the_receiver_drops(
