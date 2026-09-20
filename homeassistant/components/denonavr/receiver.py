@@ -3,6 +3,7 @@
 from collections.abc import Callable
 import contextlib
 import logging
+import time
 
 from denonavr import DenonAVR
 from denonavr.exceptions import AvrProcessingError
@@ -91,9 +92,12 @@ class ConnectDenonAVR:
         await receiver.async_setup()
         # Do an initial update if telnet is used.
         if self._use_telnet:
+            # One cache id for the whole loop: the AppCommand.xml body
+            # carries no zone, so the zones share the one request.
+            cache_id = time.monotonic()
             for zone in receiver.zones.values():
                 with contextlib.suppress(AvrProcessingError):
-                    await zone.async_update()
+                    await zone.async_update(cache_id=cache_id)
             await receiver.async_telnet_connect()
 
         self._receiver = receiver

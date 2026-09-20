@@ -147,6 +147,35 @@ async def test_status_refresh_still_fails_on_an_incomplete_response() -> None:
     zone2.async_update.assert_not_awaited()
 
 
+async def test_async_refresh_status_shares_one_cache_id() -> None:
+    """The zones' polls cost one request between them, not one each.
+
+    The AppCommand.xml body carries no zone, so denonavr answers the
+    later zones out of the first zone's request when they are all given
+    the same cache id.
+    """
+    main, zone2 = _receiver_with_zones()
+
+    await async_refresh_status(main)
+
+    main_cache_id = main.async_update.await_args.kwargs["cache_id"]
+    zone2_cache_id = zone2.async_update.await_args.kwargs["cache_id"]
+    assert main_cache_id is not None
+    assert zone2_cache_id == main_cache_id
+
+
+async def test_async_refresh_status_uses_a_new_cache_id_each_poll() -> None:
+    """A reused cache id would hand the zones the status from last time."""
+    main, _ = _receiver_with_zones()
+
+    await async_refresh_status(main)
+    first = main.async_update.await_args.kwargs["cache_id"]
+    await async_refresh_status(main)
+    second = main.async_update.await_args.kwargs["cache_id"]
+
+    assert first != second
+
+
 def _coordinator(
     hass: HomeAssistant, refresh_fn: AsyncMock, *, pref_disable_polling: bool = False
 ) -> DenonAvrDataUpdateCoordinator:
