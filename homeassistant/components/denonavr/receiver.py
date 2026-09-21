@@ -1,12 +1,13 @@
 """Code to handle a DenonAVR receiver."""
 
 from collections.abc import Callable
-import contextlib
 import logging
 
 from denonavr import DenonAVR
-from denonavr.exceptions import AvrProcessingError
+from denonavr.exceptions import DenonAvrError
 import httpx
+
+from .coordinator import UNAVAILABLE_ON
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -54,7 +55,8 @@ class ConnectDenonAVR:
             or self._receiver.model_name is None
             or self._receiver.receiver_type is None
         ):
-            _LOGGER.error(
+            # Debug: setup puts the same values into its retry reason.
+            _LOGGER.debug(
                 (
                     "Missing receiver information: manufacturer '%s', name '%s', model"
                     " '%s', type '%s'"
@@ -92,8 +94,20 @@ class ConnectDenonAVR:
         # Do an initial update if telnet is used.
         if self._use_telnet:
             for zone in receiver.zones.values():
-                with contextlib.suppress(AvrProcessingError):
+                # Classified the same way the coordinator's own poll does it,
+                # so a receiver that answers badly rather than not at all
+                # doesn't fail setup outright when it wouldn't fail a poll.
+                try:
                     await zone.async_update()
+                except UNAVAILABLE_ON:
+                    raise
+                except DenonAvrError as err:
+                    _LOGGER.debug(
+                        "Error updating zone %s at host %s: %s",
+                        zone.zone,
+                        self._host,
+                        err,
+                    )
             await receiver.async_telnet_connect()
 
         self._receiver = receiver
