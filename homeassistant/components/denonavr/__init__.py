@@ -7,7 +7,7 @@ import logging
 
 from denonavr import DenonAVR
 from denonavr.const import ALL_TELNET_EVENTS
-from denonavr.exceptions import AvrRequestError
+from denonavr.exceptions import DenonAvrError
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_HOST, EVENT_HOMEASSISTANT_STOP, Platform
@@ -80,11 +80,25 @@ async def async_setup_entry(hass: HomeAssistant, entry: DenonavrConfigEntry) -> 
         lambda: get_async_client(hass),
     )
     try:
-        await connect_denonavr.async_connect_receiver()
-    except AvrRequestError as ex:
+        connected = await connect_denonavr.async_connect_receiver()
+    except DenonAvrError as ex:
+        # Anything the receiver raises here is it not answering properly yet,
+        # so the entry retries rather than needing a manual reload.
         raise ConfigEntryNotReady from ex
     receiver = connect_denonavr.receiver
     assert receiver is not None
+    if not connected:
+        raise ConfigEntryNotReady(
+            translation_domain=DOMAIN,
+            translation_key="not_identified",
+            translation_placeholders={
+                "host": entry.data[CONF_HOST],
+                "manufacturer": str(receiver.manufacturer),
+                "name": str(receiver.name),
+                "model": str(receiver.model_name),
+                "type": str(receiver.receiver_type),
+            },
+        )
 
     use_telnet = entry.options.get(CONF_USE_TELNET, DEFAULT_USE_TELNET)
 

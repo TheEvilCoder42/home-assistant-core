@@ -106,6 +106,9 @@
     "communication_error": {
       "message": "Error communicating with {host}: {error}"
     },
+    "not_identified": {
+      "message": "Receiver at {host} did not identify itself: manufacturer {manufacturer}, name {name}, model {model}, type {type}"
+    },
     "receiver_off": {
       "message": "Cannot change {entity_id} while the zone it applies to is off"
     },
