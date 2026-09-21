@@ -1,10 +1,11 @@
 """The tests for the denonavr integration setup and teardown."""
 
 from collections.abc import Callable
+import logging
 from typing import Any
 from unittest.mock import MagicMock
 
-from denonavr.exceptions import AvrNetworkError
+from denonavr.exceptions import AvrCommandError, AvrNetworkError, AvrTimoutError
 import pytest
 
 from homeassistant.components.denonavr.const import (
@@ -21,7 +22,15 @@ from homeassistant.const import EVENT_HOMEASSISTANT_STOP, STATE_UNAVAILABLE
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import entity_registry as er
 
-from . import TEST_UNIQUE_ID, get_entity_id, setup_denonavr
+from . import (
+    TEST_HOST,
+    TEST_MODEL,
+    TEST_NAME,
+    TEST_RECEIVER_TYPE,
+    TEST_UNIQUE_ID,
+    get_entity_id,
+    setup_denonavr,
+)
 
 
 async def test_setup_skips_redundant_audyssey_refresh_with_telnet(
@@ -66,28 +75,79 @@ async def test_setup_forces_audyssey_fetch_with_telnet_but_no_polling(
     assert hass.states.get(entity_id).state != STATE_UNAVAILABLE
 
 
-async def test_setup_entry_not_ready_on_connection_error(
-    hass: HomeAssistant, client: MagicMock
+@pytest.mark.parametrize(
+    "exception",
+    [
+        pytest.param(AvrNetworkError("Connection refused", "GET"), id="network_error"),
+        pytest.param(AvrCommandError("Rejected", "GET"), id="command_error"),
+    ],
+)
+async def test_setup_entry_not_ready_on_receiver_error(
+    hass: HomeAssistant, client: MagicMock, exception: Exception
 ) -> None:
-    """A connection failure during setup must be retried, not fail permanently."""
-    client.async_setup.side_effect = AvrNetworkError("Connection refused", "GET")
+    """Any receiver failure during setup must be retried, not fail permanently.
+
+    A receiver that answers badly rather than not at all must not land in
+    SETUP_ERROR, which never retries.
+    """
+    client.async_setup.side_effect = exception
     entry = await setup_denonavr(hass)
 
     assert entry.state is ConfigEntryState.SETUP_RETRY
 
 
-async def test_setup_proceeds_despite_missing_receiver_info(
-    hass: HomeAssistant, client: MagicMock
+@pytest.mark.parametrize(
+    ("exception", "state"),
+    [
+        pytest.param(
+            AvrCommandError("Rejected", "GET"),
+            ConfigEntryState.LOADED,
+            id="rejected_command",
+        ),
+        pytest.param(
+            AvrTimoutError("Timed out", "GET"),
+            ConfigEntryState.SETUP_RETRY,
+            id="connectivity_error",
+        ),
+    ],
+)
+async def test_telnet_warm_up_read_failures(
+    hass: HomeAssistant,
+    client: MagicMock,
+    exception: Exception,
+    state: ConfigEntryState,
 ) -> None:
-    """Document current behavior: incomplete receiver info doesn't block setup.
+    """The Telnet warm-up read classifies failures the way a poll does.
 
-    async_connect_receiver() returns False when the receiver's identifying
-    fields are missing, but nothing checks that return value.
+    A rejected command is logged and setup carries on, since the same
+    failure during a poll doesn't take the entry down either; only a
+    connectivity failure holds setup back for a retry.
+    """
+    client.async_update.side_effect = exception
+    entry = await setup_denonavr(hass, options={CONF_USE_TELNET: True})
+
+    assert entry.state is state
+
+
+async def test_setup_entry_not_ready_on_missing_receiver_info(
+    hass: HomeAssistant, client: MagicMock, caplog: pytest.LogCaptureFixture
+) -> None:
+    """A receiver that does not identify itself is retried, not loaded.
+
+    It is checked before Telnet connects, so a retry leaks no connection. The
+    reason goes into the retry, which Home Assistant logs itself, not into an
+    error of its own on every attempt.
     """
     client.manufacturer = None
-    entry = await setup_denonavr(hass)
+    entry = await setup_denonavr(hass, options={CONF_USE_TELNET: True})
 
-    assert entry.state is ConfigEntryState.LOADED
+    assert entry.state is ConfigEntryState.SETUP_RETRY
+    assert entry.reason == (
+        f"Receiver at {TEST_HOST} did not identify itself: manufacturer None,"
+        f" name {TEST_NAME}, model {TEST_MODEL}, type {TEST_RECEIVER_TYPE}"
+    )
+    assert all(record.levelno < logging.WARNING for record in caplog.records)
+    client.async_telnet_connect.assert_not_awaited()
 
 
 @pytest.mark.parametrize(

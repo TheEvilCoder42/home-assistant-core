@@ -1,12 +1,13 @@
 """Code to handle a DenonAVR receiver."""
 
 from collections.abc import Callable
-import contextlib
 import logging
 
 from denonavr import DenonAVR
-from denonavr.exceptions import AvrProcessingError
+from denonavr.exceptions import DenonAvrError
 import httpx2
+
+from .coordinator import UNAVAILABLE_ON
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -54,7 +55,8 @@ class ConnectDenonAVR:
             or self._receiver.model_name is None
             or self._receiver.receiver_type is None
         ):
-            _LOGGER.error(
+            # Debug: setup puts the same values into its retry reason.
+            _LOGGER.debug(
                 (
                     "Missing receiver information: manufacturer '%s', name '%s', model"
                     " '%s', type '%s'"
@@ -65,6 +67,25 @@ class ConnectDenonAVR:
                 self._receiver.receiver_type,
             )
             return False
+
+        # Do an initial update if telnet is used.
+        if self._use_telnet:
+            for zone in self._receiver.zones.values():
+                # Classified the same way the coordinator's own poll does it,
+                # so a receiver that answers badly rather than not at all
+                # doesn't fail setup outright when it wouldn't fail a poll.
+                try:
+                    await zone.async_update()
+                except UNAVAILABLE_ON:
+                    raise
+                except DenonAvrError as err:
+                    _LOGGER.debug(
+                        "Error updating zone %s at host %s: %s",
+                        zone.zone,
+                        self._host,
+                        err,
+                    )
+            await self._receiver.async_telnet_connect()
 
         _LOGGER.debug(
             "%s receiver %s at host %s connected, model %s, serial %s, type %s",
@@ -89,11 +110,4 @@ class ConnectDenonAVR:
         # Use httpx2.AsyncClient getter provided by Home Assistant
         receiver.set_async_client_getter(self._async_client_getter)
         await receiver.async_setup()
-        # Do an initial update if telnet is used.
-        if self._use_telnet:
-            for zone in receiver.zones.values():
-                with contextlib.suppress(AvrProcessingError):
-                    await zone.async_update()
-            await receiver.async_telnet_connect()
-
         self._receiver = receiver
