@@ -40,6 +40,7 @@ from .coordinator import (
     mark_available,
     mark_unavailable,
 )
+from .entity import error_message
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -123,19 +124,41 @@ def async_log_errors[_DenonDeviceT: DenonDevice, **_P, _R](
             except COMMAND_UNAVAILABLE_ON as err:
                 mark_unavailable(self.coordinator, err)
                 raise HomeAssistantError(
-                    f"Error communicating with {self._receiver.host}: {err}"
+                    translation_domain=DOMAIN,
+                    translation_key="communication_error",
+                    translation_placeholders={
+                        "host": self._receiver.host,
+                        "error": error_message(err),
+                    },
                 ) from err
             except AvrProcessingError as err:
                 raise HomeAssistantError(
-                    f"Update of {self._receiver.host} not complete: {err}"
+                    translation_domain=DOMAIN,
+                    translation_key="update_not_complete",
+                    translation_placeholders={
+                        "host": self._receiver.host,
+                        "error": error_message(err),
+                    },
                 ) from err
             except AvrCommandError as err:
                 raise HomeAssistantError(
-                    f"Command {func.__name__} failed on {self._receiver.host}: {err}"
+                    translation_domain=DOMAIN,
+                    translation_key="command_failed",
+                    translation_placeholders={
+                        "command": func.__name__,
+                        "host": self._receiver.host,
+                        "error": error_message(err),
+                    },
                 ) from err
             except DenonAvrError as err:
                 raise HomeAssistantError(
-                    f"Error calling {func.__name__} on {self._receiver.host}: {err}"
+                    translation_domain=DOMAIN,
+                    translation_key="command_error",
+                    translation_placeholders={
+                        "command": func.__name__,
+                        "host": self._receiver.host,
+                        "error": error_message(err),
+                    },
                 ) from err
         await self.coordinator.async_request_refresh()
         return result

@@ -175,28 +175,54 @@ async def test_update_entity_reads_before_returning(
 
 
 @pytest.mark.parametrize(
-    "exception",
+    ("exception", "translation_key", "message"),
     [
         pytest.param(
-            AvrProcessingError("Update not complete", "SetVolume"), id="processing"
+            AvrProcessingError("Update not complete", "SetVolume"),
+            "update_not_complete",
+            f"Update of {TEST_HOST} not complete: Update not complete",
+            id="processing",
         ),
         pytest.param(
-            AvrCommandError("Could not set volume", "SetVolume"), id="command"
+            AvrCommandError("Could not set volume", "SetVolume"),
+            "command_failed",
+            f"Command async_volume_up failed on {TEST_HOST}: Could not set volume",
+            id="command",
         ),
-        pytest.param(DenonAvrError("Unexpected"), id="generic"),
+        pytest.param(
+            DenonAvrError("Unexpected"),
+            "command_error",
+            f"Error calling async_volume_up on {TEST_HOST}: Unexpected",
+            id="generic",
+        ),
+        pytest.param(
+            DenonAvrError(),
+            "command_error",
+            f"Error calling async_volume_up on {TEST_HOST}: ",
+            id="generic_without_a_message",
+        ),
         # The receiver refusing this command, as the AVR-X1700H refuses HTTP
         # track skips.
-        pytest.param(AvrForbiddenError("Forbidden", "SetVolume"), id="forbidden"),
+        pytest.param(
+            AvrForbiddenError("Forbidden", "SetVolume"),
+            "command_error",
+            f"Error calling async_volume_up on {TEST_HOST}: Forbidden",
+            id="forbidden",
+        ),
     ],
 )
 async def test_non_connectivity_error_does_not_mark_unavailable(
-    hass: HomeAssistant, client: MagicMock, exception: Exception
+    hass: HomeAssistant,
+    client: MagicMock,
+    exception: Exception,
+    translation_key: str,
+    message: str,
 ) -> None:
     """Not connectivity failures: the receiver answered, or rejected one command."""
     entry = await setup_denonavr(hass)
     client.async_volume_up.side_effect = exception
 
-    with pytest.raises(HomeAssistantError):
+    with pytest.raises(HomeAssistantError) as err:
         await hass.services.async_call(
             media_player.DOMAIN,
             SERVICE_VOLUME_UP,
@@ -204,33 +230,44 @@ async def test_non_connectivity_error_does_not_mark_unavailable(
             blocking=True,
         )
 
+    # Asserting the rendered message keeps the placeholders and the
+    # strings.json entry in step, not just the key.
+    assert err.value.translation_key == translation_key
+    assert str(err.value) == message
     assert entry.runtime_data.coordinator.last_update_success
     assert entry.runtime_data.audyssey_coordinator.last_update_success
     assert hass.states.get(ENTITY_ID).state != STATE_UNAVAILABLE
 
 
 @pytest.mark.parametrize(
-    "exception",
+    ("exception", "message"),
     [
-        pytest.param(AvrTimoutError("Timed out", "SetVolume"), id="timeout"),
-        pytest.param(AvrNetworkError("Network error", "SetVolume"), id="network"),
         pytest.param(
-            AvrInvalidResponseError("Bad XML", "SetVolume"), id="invalid_response"
+            AvrTimoutError("Timed out", "SetVolume"), "Timed out", id="timeout"
+        ),
+        pytest.param(
+            AvrNetworkError("Network error", "SetVolume"), "Network error", id="network"
+        ),
+        pytest.param(
+            AvrInvalidResponseError("Bad XML", "SetVolume"),
+            "Bad XML",
+            id="invalid_response",
         ),
         pytest.param(
             AvrIncompleteResponseError("Incomplete", "SetVolume"),
+            "Incomplete",
             id="incomplete_response",
         ),
     ],
 )
 async def test_connectivity_error_marks_unavailable(
-    hass: HomeAssistant, client: MagicMock, exception: Exception
+    hass: HomeAssistant, client: MagicMock, exception: Exception, message: str
 ) -> None:
     """A command finding the receiver unreachable marks it unavailable at once."""
     entry = await setup_denonavr(hass)
     client.async_volume_up.side_effect = exception
 
-    with pytest.raises(HomeAssistantError):
+    with pytest.raises(HomeAssistantError) as err:
         await hass.services.async_call(
             media_player.DOMAIN,
             SERVICE_VOLUME_UP,
@@ -238,6 +275,8 @@ async def test_connectivity_error_marks_unavailable(
             blocking=True,
         )
 
+    assert err.value.translation_key == "communication_error"
+    assert str(err.value) == f"Error communicating with {TEST_HOST}: {message}"
     assert entry.runtime_data.coordinator.last_update_success is False
     assert hass.states.get(ENTITY_ID).state == STATE_UNAVAILABLE
 
