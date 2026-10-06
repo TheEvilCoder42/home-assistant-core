@@ -59,6 +59,19 @@ def client_fixture() -> Generator[MagicMock]:
         client.telnet_connected = False
         client.telnet_healthy = False
         client.dynamic_eq = True
+        client.reference_level_offset = "0dB"
+        client.dynamic_volume = "Off"
+        client.multi_eq = "Reference"
+        client.multi_eq_setting_list = [
+            "Off",
+            "Flat",
+            "L/R Bypass",
+            "Reference",
+            "Manual",
+        ]
+        client.eco_mode = "Auto"
+        client.dimmer = "Bright"
+        client.auto_standby = "OFF"
         yield client
 
 

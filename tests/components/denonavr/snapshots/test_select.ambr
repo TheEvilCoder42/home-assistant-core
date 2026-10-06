@@ -1,0 +1,385 @@
+# serializer version: 1
+# name: test_entities[select.test_receiver_audyssey_dynamic_volume-entry]
+  EntityRegistryEntrySnapshot({
+    'aliases': list([
+      None,
+    ]),
+    'area_id': None,
+    'capabilities': dict({
+      <SelectEntityCapabilityAttribute.OPTIONS: 'options'>: list([
+        'off',
+        'light',
+        'medium',
+        'heavy',
+      ]),
+    }),
+    'config_entry_id': <ANY>,
+    'config_subentry_id': <ANY>,
+    'device_class': None,
+    'device_id': <ANY>,
+    'disabled_by': None,
+    'domain': 'select',
+    'entity_category': <EntityCategory.CONFIG: 'config'>,
+    'entity_id': 'select.test_receiver_audyssey_dynamic_volume',
+    'has_entity_name': True,
+    'hidden_by': None,
+    'icon': None,
+    'id': <ANY>,
+    'labels': set({
+    }),
+    'name': None,
+    'object_id_base': 'Audyssey Dynamic Volume',
+    'options': dict({
+    }),
+    'original_device_class': None,
+    'original_icon': None,
+    'original_name': 'Audyssey Dynamic Volume',
+    'platform': 'denonavr',
+    'previous_unique_id': None,
+    'suggested_object_id': None,
+    'supported_features': 0,
+    'translation_key': 'dynamic_volume',
+    'unique_id': 'model5-123456789-dynamic_volume',
+    'unit_of_measurement': None,
+  })
+# ---
+# name: test_entities[select.test_receiver_audyssey_dynamic_volume-state]
+  StateSnapshot({
+    'attributes': ReadOnlyDict({
+      <EntityStateAttribute.FRIENDLY_NAME: 'friendly_name'>: 'Test_Receiver Audyssey Dynamic Volume',
+      <SelectEntityCapabilityAttribute.OPTIONS: 'options'>: list([
+        'off',
+        'light',
+        'medium',
+        'heavy',
+      ]),
+    }),
+    'context': <ANY>,
+    'entity_id': 'select.test_receiver_audyssey_dynamic_volume',
+    'last_changed': <ANY>,
+    'last_reported': <ANY>,
+    'last_updated': <ANY>,
+    'state': 'off',
+  })
+# ---
+# name: test_entities[select.test_receiver_audyssey_multeq-entry]
+  EntityRegistryEntrySnapshot({
+    'aliases': list([
+      None,
+    ]),
+    'area_id': None,
+    'capabilities': dict({
+      <SelectEntityCapabilityAttribute.OPTIONS: 'options'>: list([
+        'off',
+        'flat',
+        'l_r_bypass',
+        'reference',
+        'manual',
+      ]),
+    }),
+    'config_entry_id': <ANY>,
+    'config_subentry_id': <ANY>,
+    'device_class': None,
+    'device_id': <ANY>,
+    'disabled_by': None,
+    'domain': 'select',
+    'entity_category': <EntityCategory.CONFIG: 'config'>,
+    'entity_id': 'select.test_receiver_audyssey_multeq',
+    'has_entity_name': True,
+    'hidden_by': None,
+    'icon': None,
+    'id': <ANY>,
+    'labels': set({
+    }),
+    'name': None,
+    'object_id_base': 'Audyssey MultEQ',
+    'options': dict({
+    }),
+    'original_device_class': None,
+    'original_icon': None,
+    'original_name': 'Audyssey MultEQ',
+    'platform': 'denonavr',
+    'previous_unique_id': None,
+    'suggested_object_id': None,
+    'supported_features': 0,
+    'translation_key': 'multi_eq',
+    'unique_id': 'model5-123456789-multi_eq',
+    'unit_of_measurement': None,
+  })
+# ---
+# name: test_entities[select.test_receiver_audyssey_multeq-state]
+  StateSnapshot({
+    'attributes': ReadOnlyDict({
+      <EntityStateAttribute.FRIENDLY_NAME: 'friendly_name'>: 'Test_Receiver Audyssey MultEQ',
+      <SelectEntityCapabilityAttribute.OPTIONS: 'options'>: list([
+        'off',
+        'flat',
+        'l_r_bypass',
+        'reference',
+        'manual',
+      ]),
+    }),
+    'context': <ANY>,
+    'entity_id': 'select.test_receiver_audyssey_multeq',
+    'last_changed': <ANY>,
+    'last_reported': <ANY>,
+    'last_updated': <ANY>,
+    'state': 'reference',
+  })
+# ---
+# name: test_entities[select.test_receiver_audyssey_reference_level_offset-entry]
+  EntityRegistryEntrySnapshot({
+    'aliases': list([
+      None,
+    ]),
+    'area_id': None,
+    'capabilities': dict({
+      <SelectEntityCapabilityAttribute.OPTIONS: 'options'>: list([
+        '0db',
+        '5db',
+        '10db',
+        '15db',
+      ]),
+    }),
+    'config_entry_id': <ANY>,
+    'config_subentry_id': <ANY>,
+    'device_class': None,
+    'device_id': <ANY>,
+    'disabled_by': None,
+    'domain': 'select',
+    'entity_category': <EntityCategory.CONFIG: 'config'>,
+    'entity_id': 'select.test_receiver_audyssey_reference_level_offset',
+    'has_entity_name': True,
+    'hidden_by': None,
+    'icon': None,
+    'id': <ANY>,
+    'labels': set({
+    }),
+    'name': None,
+    'object_id_base': 'Audyssey reference level offset',
+    'options': dict({
+    }),
+    'original_device_class': None,
+    'original_icon': None,
+    'original_name': 'Audyssey reference level offset',
+    'platform': 'denonavr',
+    'previous_unique_id': None,
+    'suggested_object_id': None,
+    'supported_features': 0,
+    'translation_key': 'reference_level_offset',
+    'unique_id': 'model5-123456789-reference_level_offset',
+    'unit_of_measurement': None,
+  })
+# ---
+# name: test_entities[select.test_receiver_audyssey_reference_level_offset-state]
+  StateSnapshot({
+    'attributes': ReadOnlyDict({
+      <EntityStateAttribute.FRIENDLY_NAME: 'friendly_name'>: 'Test_Receiver Audyssey reference level offset',
+      <SelectEntityCapabilityAttribute.OPTIONS: 'options'>: list([
+        '0db',
+        '5db',
+        '10db',
+        '15db',
+      ]),
+    }),
+    'context': <ANY>,
+    'entity_id': 'select.test_receiver_audyssey_reference_level_offset',
+    'last_changed': <ANY>,
+    'last_reported': <ANY>,
+    'last_updated': <ANY>,
+    'state': '0db',
+  })
+# ---
+# name: test_entities[select.test_receiver_auto_standby-entry]
+  EntityRegistryEntrySnapshot({
+    'aliases': list([
+      None,
+    ]),
+    'area_id': None,
+    'capabilities': dict({
+      <SelectEntityCapabilityAttribute.OPTIONS: 'options'>: list([
+        'off',
+        '15m',
+        '30m',
+        '60m',
+        '2h',
+        '4h',
+        '8h',
+      ]),
+    }),
+    'config_entry_id': <ANY>,
+    'config_subentry_id': <ANY>,
+    'device_class': None,
+    'device_id': <ANY>,
+    'disabled_by': None,
+    'domain': 'select',
+    'entity_category': <EntityCategory.CONFIG: 'config'>,
+    'entity_id': 'select.test_receiver_auto_standby',
+    'has_entity_name': True,
+    'hidden_by': None,
+    'icon': None,
+    'id': <ANY>,
+    'labels': set({
+    }),
+    'name': None,
+    'object_id_base': 'Auto standby',
+    'options': dict({
+    }),
+    'original_device_class': None,
+    'original_icon': None,
+    'original_name': 'Auto standby',
+    'platform': 'denonavr',
+    'previous_unique_id': None,
+    'suggested_object_id': None,
+    'supported_features': 0,
+    'translation_key': 'auto_standby',
+    'unique_id': 'model5-123456789-auto_standby',
+    'unit_of_measurement': None,
+  })
+# ---
+# name: test_entities[select.test_receiver_auto_standby-state]
+  StateSnapshot({
+    'attributes': ReadOnlyDict({
+      <EntityStateAttribute.FRIENDLY_NAME: 'friendly_name'>: 'Test_Receiver Auto standby',
+      <SelectEntityCapabilityAttribute.OPTIONS: 'options'>: list([
+        'off',
+        '15m',
+        '30m',
+        '60m',
+        '2h',
+        '4h',
+        '8h',
+      ]),
+    }),
+    'context': <ANY>,
+    'entity_id': 'select.test_receiver_auto_standby',
+    'last_changed': <ANY>,
+    'last_reported': <ANY>,
+    'last_updated': <ANY>,
+    'state': 'off',
+  })
+# ---
+# name: test_entities[select.test_receiver_display_dimmer-entry]
+  EntityRegistryEntrySnapshot({
+    'aliases': list([
+      None,
+    ]),
+    'area_id': None,
+    'capabilities': dict({
+      <SelectEntityCapabilityAttribute.OPTIONS: 'options'>: list([
+        'off',
+        'dark',
+        'dim',
+        'bright',
+      ]),
+    }),
+    'config_entry_id': <ANY>,
+    'config_subentry_id': <ANY>,
+    'device_class': None,
+    'device_id': <ANY>,
+    'disabled_by': None,
+    'domain': 'select',
+    'entity_category': <EntityCategory.CONFIG: 'config'>,
+    'entity_id': 'select.test_receiver_display_dimmer',
+    'has_entity_name': True,
+    'hidden_by': None,
+    'icon': None,
+    'id': <ANY>,
+    'labels': set({
+    }),
+    'name': None,
+    'object_id_base': 'Display dimmer',
+    'options': dict({
+    }),
+    'original_device_class': None,
+    'original_icon': None,
+    'original_name': 'Display dimmer',
+    'platform': 'denonavr',
+    'previous_unique_id': None,
+    'suggested_object_id': None,
+    'supported_features': 0,
+    'translation_key': 'dimmer',
+    'unique_id': 'model5-123456789-dimmer',
+    'unit_of_measurement': None,
+  })
+# ---
+# name: test_entities[select.test_receiver_display_dimmer-state]
+  StateSnapshot({
+    'attributes': ReadOnlyDict({
+      <EntityStateAttribute.FRIENDLY_NAME: 'friendly_name'>: 'Test_Receiver Display dimmer',
+      <SelectEntityCapabilityAttribute.OPTIONS: 'options'>: list([
+        'off',
+        'dark',
+        'dim',
+        'bright',
+      ]),
+    }),
+    'context': <ANY>,
+    'entity_id': 'select.test_receiver_display_dimmer',
+    'last_changed': <ANY>,
+    'last_reported': <ANY>,
+    'last_updated': <ANY>,
+    'state': 'bright',
+  })
+# ---
+# name: test_entities[select.test_receiver_eco_mode-entry]
+  EntityRegistryEntrySnapshot({
+    'aliases': list([
+      None,
+    ]),
+    'area_id': None,
+    'capabilities': dict({
+      <SelectEntityCapabilityAttribute.OPTIONS: 'options'>: list([
+        'on',
+        'auto',
+        'off',
+      ]),
+    }),
+    'config_entry_id': <ANY>,
+    'config_subentry_id': <ANY>,
+    'device_class': None,
+    'device_id': <ANY>,
+    'disabled_by': None,
+    'domain': 'select',
+    'entity_category': <EntityCategory.CONFIG: 'config'>,
+    'entity_id': 'select.test_receiver_eco_mode',
+    'has_entity_name': True,
+    'hidden_by': None,
+    'icon': None,
+    'id': <ANY>,
+    'labels': set({
+    }),
+    'name': None,
+    'object_id_base': 'Eco mode',
+    'options': dict({
+    }),
+    'original_device_class': None,
+    'original_icon': None,
+    'original_name': 'Eco mode',
+    'platform': 'denonavr',
+    'previous_unique_id': None,
+    'suggested_object_id': None,
+    'supported_features': 0,
+    'translation_key': 'eco_mode',
+    'unique_id': 'model5-123456789-eco_mode',
+    'unit_of_measurement': None,
+  })
+# ---
+# name: test_entities[select.test_receiver_eco_mode-state]
+  StateSnapshot({
+    'attributes': ReadOnlyDict({
+      <EntityStateAttribute.FRIENDLY_NAME: 'friendly_name'>: 'Test_Receiver Eco mode',
+      <SelectEntityCapabilityAttribute.OPTIONS: 'options'>: list([
+        'on',
+        'auto',
+        'off',
+      ]),
+    }),
+    'context': <ANY>,
+    'entity_id': 'select.test_receiver_eco_mode',
+    'last_changed': <ANY>,
+    'last_reported': <ANY>,
+    'last_updated': <ANY>,
+    'state': 'auto',
+  })
+# ---
