@@ -46,7 +46,7 @@ from .coordinator import (
     async_update_zone_audyssey,
     mark_unavailable,
 )
-from .entity import receiver_unique_id
+from .entity import raise_if_powered_off, receiver_unique_id
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -494,6 +494,8 @@ class DenonDevice(CoordinatorEntity[DenonAvrDataUpdateCoordinator], MediaPlayerE
     @async_log_errors
     async def async_set_dynamic_eq(self, dynamic_eq: bool) -> None:
         """Turn DynamicEQ on or off."""
+        # The main zone's power even on a zone's player: Dynamic EQ follows it.
+        raise_if_powered_off(self.coordinator.receiver, self.entity_id)
         # A connectivity failure marks status alone, through the decorator:
         # marked here, Audyssey would outlast status until an Audyssey push.
         if dynamic_eq:
