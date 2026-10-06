@@ -24,20 +24,3 @@ COORDINATOR_UPDATE_INTERVAL = 10
 
 # Delay action-triggered refreshes so the receiver can settle and coalesce changes.
 ACTION_REFRESH_DEBOUNCE_COOLDOWN = 0.5
-
-# Telnet events relevant to media_player.py's own state.
-TELNET_EVENTS = {
-    "HD",
-    "MS",
-    "MU",
-    "MV",
-    "NS",
-    "NSE",
-    "PS",
-    "SI",
-    "SS",
-    "TF",
-    "ZM",
-    "Z2",
-    "Z3",
-}

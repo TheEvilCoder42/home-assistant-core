@@ -1,9 +1,10 @@
 """Fixtures shared across denonavr tests."""
 
-from collections.abc import Generator
+from collections import defaultdict
+from collections.abc import Callable, Generator
 from unittest.mock import MagicMock, patch
 
-from denonavr.const import POWER_ON
+from denonavr.const import ALL_TELNET_EVENTS, POWER_ON
 import pytest
 
 from . import (
@@ -15,6 +16,8 @@ from . import (
     TEST_SERIALNUMBER,
     TEST_ZONE,
 )
+
+type TelnetCallback = Callable[[str, str, str], None]
 
 
 @pytest.fixture(name="client")
@@ -43,3 +46,28 @@ def client_fixture() -> Generator[MagicMock]:
         client.telnet_healthy = False
         client.dynamic_eq = True
         yield client
+
+
+@pytest.fixture
+def fire_telnet_event(client: MagicMock) -> TelnetCallback:
+    """Record the Telnet callbacks registered on the receiver.
+
+    Returns a function firing one event at them the way denonavr does: the
+    event's own callbacks first, then those registered for every event.
+    """
+    callbacks: defaultdict[str, list[TelnetCallback]] = defaultdict(list)
+
+    def _register(event: str, callback: TelnetCallback) -> None:
+        callbacks[event].append(callback)
+
+    def _unregister(event: str, callback: TelnetCallback) -> None:
+        callbacks[event].remove(callback)
+
+    client.register_callback.side_effect = _register
+    client.unregister_callback.side_effect = _unregister
+
+    def _fire(zone: str, event: str, parameter: str) -> None:
+        for callback in (*callbacks[event], *callbacks[ALL_TELNET_EVENTS]):
+            callback(zone, event, parameter)
+
+    return _fire
