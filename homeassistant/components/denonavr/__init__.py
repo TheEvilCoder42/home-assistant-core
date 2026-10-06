@@ -18,6 +18,7 @@ from homeassistant.helpers.httpx_client import get_async_client
 from homeassistant.helpers.typing import ConfigType
 
 from .const import (
+    AUDYSSEY_TELNET_EVENT,
     CONF_SHOW_ALL_SOURCES,
     CONF_UPDATE_AUDYSSEY,
     CONF_USE_TELNET,
@@ -42,7 +43,7 @@ from .receiver import ConnectDenonAVR
 from .services import async_setup_services
 
 CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
-PLATFORMS = [Platform.MEDIA_PLAYER]
+PLATFORMS = [Platform.MEDIA_PLAYER, Platform.SWITCH]
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -178,6 +179,29 @@ async def async_setup_entry(hass: HomeAssistant, entry: DenonavrConfigEntry) -> 
     # only pushes on a change. Forced, and after the listener above so a
     # failure reaches the status coordinator instead of failing setup.
     await audyssey_coordinator.async_refresh_forced()
+
+    @callback
+    def _telnet_notify_audyssey(zone: str, event: str, parameter: str) -> None:
+        """Feed Telnet activity into the Audyssey coordinator.
+
+        On the receiver rather than on an entity, whose callback would
+        only run while that entity is enabled.
+
+        A push is the receiver answering, so it clears an earlier
+        connectivity failure while there is no poll to: a failed poll reads,
+        and a push clearing it would make it skip and hide an Audyssey-only
+        HTTP failure behind stale values.
+        """
+        if not audyssey_coordinator.polls:
+            audyssey_coordinator.last_update_success = True
+        audyssey_coordinator.async_update_listeners()
+
+    receiver.register_callback(AUDYSSEY_TELNET_EVENT, _telnet_notify_audyssey)
+    entry.async_on_unload(
+        lambda: receiver.unregister_callback(
+            AUDYSSEY_TELNET_EVENT, _telnet_notify_audyssey
+        )
+    )
 
     @callback
     def _telnet_notify_status(zone: str, event: str, parameter: str) -> None:

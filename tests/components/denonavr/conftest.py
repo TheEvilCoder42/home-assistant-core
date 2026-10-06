@@ -20,6 +20,20 @@ from . import (
 type TelnetCallback = Callable[[str, str, str], None]
 
 
+@pytest.fixture
+def fast_action_refresh_debounce() -> Generator[None]:
+    """Patch the action-refresh debounce cooldown to zero.
+
+    Every action schedules a debounced confirmation refresh; the real
+    cooldown would make each test wait it out for nothing.
+    """
+    with patch(
+        "homeassistant.components.denonavr.coordinator.ACTION_REFRESH_DEBOUNCE_COOLDOWN",
+        0,
+    ):
+        yield
+
+
 @pytest.fixture(name="client")
 def client_fixture() -> Generator[MagicMock]:
     """Patch of client library for tests."""

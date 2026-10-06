@@ -1,0 +1,51 @@
+# serializer version: 1
+# name: test_entities[switch.test_receiver_audyssey_dynamic_eq-entry]
+  EntityRegistryEntrySnapshot({
+    'aliases': list([
+      None,
+    ]),
+    'area_id': None,
+    'capabilities': None,
+    'config_entry_id': <ANY>,
+    'config_subentry_id': <ANY>,
+    'device_class': None,
+    'device_id': <ANY>,
+    'disabled_by': None,
+    'domain': 'switch',
+    'entity_category': <EntityCategory.CONFIG: 'config'>,
+    'entity_id': 'switch.test_receiver_audyssey_dynamic_eq',
+    'has_entity_name': True,
+    'hidden_by': None,
+    'icon': None,
+    'id': <ANY>,
+    'labels': set({
+    }),
+    'name': None,
+    'object_id_base': 'Audyssey Dynamic EQ',
+    'options': dict({
+    }),
+    'original_device_class': None,
+    'original_icon': None,
+    'original_name': 'Audyssey Dynamic EQ',
+    'platform': 'denonavr',
+    'previous_unique_id': None,
+    'suggested_object_id': None,
+    'supported_features': 0,
+    'translation_key': 'dynamic_eq',
+    'unique_id': 'model5-123456789-dynamic_eq',
+    'unit_of_measurement': None,
+  })
+# ---
+# name: test_entities[switch.test_receiver_audyssey_dynamic_eq-state]
+  StateSnapshot({
+    'attributes': ReadOnlyDict({
+      <EntityStateAttribute.FRIENDLY_NAME: 'friendly_name'>: 'Test_Receiver Audyssey Dynamic EQ',
+    }),
+    'context': <ANY>,
+    'entity_id': 'switch.test_receiver_audyssey_dynamic_eq',
+    'last_changed': <ANY>,
+    'last_reported': <ANY>,
+    'last_updated': <ANY>,
+    'state': 'on',
+  })
+# ---
