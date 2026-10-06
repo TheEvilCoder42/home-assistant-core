@@ -1,0 +1,840 @@
+"""The tests for the denonavr select platform."""
+
+import asyncio
+from collections.abc import Callable
+from datetime import timedelta
+from unittest.mock import MagicMock, create_autospec, patch
+
+from denonavr import DenonAVR
+from denonavr.const import MAIN_ZONE, POWER_OFF, POWER_ON, POWER_STANDBY, ZONE2
+from denonavr.exceptions import AvrCommandError, AvrNetworkError
+from freezegun.api import FrozenDateTimeFactory
+import pytest
+from syrupy.assertion import SnapshotAssertion
+
+from homeassistant.components.denonavr.const import (
+    CONF_UPDATE_AUDYSSEY,
+    PENDING_VALUE_TIMEOUT,
+)
+from homeassistant.components.denonavr.coordinator import (
+    DenonAvrDataUpdateCoordinator,
+    mark_unavailable,
+)
+from homeassistant.components.select import DOMAIN as SELECT_DOMAIN
+from homeassistant.components.switch import DOMAIN as SWITCH_DOMAIN
+from homeassistant.const import (
+    ATTR_ENTITY_ID,
+    ATTR_OPTION,
+    SERVICE_SELECT_OPTION,
+    SERVICE_TURN_OFF,
+    STATE_OFF,
+    STATE_UNAVAILABLE,
+    Platform,
+)
+from homeassistant.core import HomeAssistant
+from homeassistant.exceptions import HomeAssistantError, ServiceValidationError
+from homeassistant.helpers import entity_registry as er
+
+from . import TEST_HOST, get_entity_id, setup_denonavr
+
+from tests.common import async_fire_time_changed, snapshot_platform
+
+pytestmark = pytest.mark.usefixtures("fast_action_refresh_debounce")
+
+
+async def _wait_for_debounced_refresh(hass: HomeAssistant) -> None:
+    """Let a coordinator's debounced confirmation refresh actually fire.
+
+    async_block_till_done() alone returns before the debouncer's own task
+    has run, so the sleep hands it the loop first.
+    """
+    await asyncio.sleep(0)
+    await hass.async_block_till_done()
+
+
+async def _advance(
+    hass: HomeAssistant, freezer: FrozenDateTimeFactory, seconds: float
+) -> None:
+    """Move the clock on and let whatever falls due run."""
+    freezer.tick(timedelta(seconds=seconds))
+    async_fire_time_changed(hass)
+    await hass.async_block_till_done()
+
+
+async def _select_option(hass: HomeAssistant, entity_id: str, option: str) -> None:
+    """Select an option through the service call."""
+    await hass.services.async_call(
+        SELECT_DOMAIN,
+        SERVICE_SELECT_OPTION,
+        {ATTR_ENTITY_ID: entity_id, ATTR_OPTION: option},
+        blocking=True,
+    )
+
+
+def _add_zone2(client: MagicMock, power: str | None) -> None:
+    """Give the receiver a zone 2 in this power state.
+
+    Called after setup, so no platform creates entities for it.
+    """
+    zone2 = create_autospec(DenonAVR, instance=True)
+    zone2.power = power
+    client.zones = {MAIN_ZONE: client, ZONE2: zone2}
+
+
+@pytest.mark.usefixtures("client")
+async def test_entities(
+    hass: HomeAssistant,
+    entity_registry: er.EntityRegistry,
+    snapshot: SnapshotAssertion,
+) -> None:
+    """Test the select entities and their registry entries."""
+    with patch("homeassistant.components.denonavr.PLATFORMS", [Platform.SELECT]):
+        entry = await setup_denonavr(hass)
+
+    await snapshot_platform(hass, entity_registry, snapshot, entry.entry_id)
+
+
+async def test_reference_level_offset_unavailable_when_dynamic_eq_off(
+    hass: HomeAssistant, client: MagicMock, entity_registry: er.EntityRegistry
+) -> None:
+    """Test the reference level offset select is unavailable without Dynamic EQ."""
+    client.dynamic_eq = False
+    await setup_denonavr(hass)
+
+    entity_id = get_entity_id(entity_registry, SELECT_DOMAIN, "reference_level_offset")
+    assert hass.states.get(entity_id).state == STATE_UNAVAILABLE
+
+
+@pytest.mark.parametrize(
+    ("multi_eq", "expected"),
+    [
+        pytest.param("Off", STATE_UNAVAILABLE, id="multeq_off"),
+        pytest.param("Flat", "off", id="multeq_on"),
+        pytest.param(None, "off", id="multeq_unknown"),
+    ],
+)
+async def test_dynamic_volume_follows_multeq(
+    hass: HomeAssistant,
+    client: MagicMock,
+    entity_registry: er.EntityRegistry,
+    multi_eq: str | None,
+    expected: str,
+) -> None:
+    """Dynamic Volume is unavailable while MultEQ is Off.
+
+    The receiver forces it off there, and a change silently turns MultEQ
+    back on. An unknown MultEQ leaves the select available.
+    """
+    client.multi_eq = multi_eq
+    await setup_denonavr(hass)
+
+    entity_id = get_entity_id(entity_registry, SELECT_DOMAIN, "dynamic_volume")
+    assert hass.states.get(entity_id).state == expected
+
+
+@pytest.mark.parametrize("sound_mode", ["DIRECT", "PURE DIRECT"])
+@pytest.mark.parametrize(
+    ("key", "option"),
+    [
+        pytest.param("multi_eq", "reference", id="multi_eq"),
+        pytest.param("dynamic_volume", "off", id="dynamic_volume"),
+        pytest.param("reference_level_offset", "0db", id="reference_level_offset"),
+    ],
+)
+async def test_audyssey_follows_direct_through_a_status_refresh(
+    hass: HomeAssistant,
+    client: MagicMock,
+    entity_registry: er.EntityRegistry,
+    sound_mode: str,
+    key: str,
+    option: str,
+) -> None:
+    """Audyssey selects are unavailable in Direct, seen by a status refresh alone.
+
+    Direct bypasses Audyssey and the receiver drops every command for it. The
+    sound mode is a status value and the Audyssey coordinator does not
+    refresh here, so the selects have to follow the status coordinator too.
+    """
+    entry = await setup_denonavr(hass)
+    entity_id = get_entity_id(entity_registry, SELECT_DOMAIN, key)
+    assert hass.states.get(entity_id).state == option
+    audyssey_reads = client.async_update_audyssey.await_count
+
+    client.sound_mode = sound_mode
+    await entry.runtime_data.coordinator.async_refresh()
+    await hass.async_block_till_done()
+    assert hass.states.get(entity_id).state == STATE_UNAVAILABLE
+
+    client.sound_mode = "STEREO"
+    await entry.runtime_data.coordinator.async_refresh()
+    await hass.async_block_till_done()
+    assert hass.states.get(entity_id).state == option
+    assert client.async_update_audyssey.await_count == audyssey_reads
+
+
+async def test_multi_eq_options_follow_the_receiver(
+    hass: HomeAssistant, client: MagicMock, entity_registry: er.EntityRegistry
+) -> None:
+    """Audyssey MultEQ offers only what the receiver takes over its connection.
+
+    Without Telnet the receiver cannot be set to Manual.
+    """
+    client.multi_eq_setting_list = ["Off", "Flat", "L/R Bypass", "Reference"]
+    await setup_denonavr(hass)
+
+    entity_id = get_entity_id(entity_registry, SELECT_DOMAIN, "multi_eq")
+    assert hass.states.get(entity_id).attributes["options"] == [
+        "off",
+        "flat",
+        "l_r_bypass",
+        "reference",
+    ]
+
+
+async def test_unknown_value_is_unavailable(
+    hass: HomeAssistant, client: MagicMock, entity_registry: er.EntityRegistry
+) -> None:
+    """A value outside the option keys is not shown as one of them."""
+    client.dimmer = "Unexpected"
+    await setup_denonavr(hass)
+
+    entity_id = get_entity_id(entity_registry, SELECT_DOMAIN, "dimmer")
+    assert hass.states.get(entity_id).state == STATE_UNAVAILABLE
+
+
+@pytest.mark.parametrize(
+    ("key", "option", "command", "value"),
+    [
+        pytest.param(
+            "reference_level_offset",
+            "5db",
+            "async_set_reflevoffset",
+            "+5dB",
+            id="reference_level_offset",
+        ),
+        pytest.param(
+            "dynamic_volume",
+            "heavy",
+            "async_set_dynamicvol",
+            "Heavy",
+            id="dynamic_volume",
+        ),
+        pytest.param(
+            "multi_eq", "l_r_bypass", "async_set_multieq", "L/R Bypass", id="multi_eq"
+        ),
+        pytest.param("eco_mode", "on", "async_eco_mode", "On", id="eco_mode"),
+        pytest.param("dimmer", "dark", "async_dimmer", "Dark", id="dimmer"),
+        pytest.param(
+            "auto_standby", "30m", "async_auto_standby", "30M", id="auto_standby"
+        ),
+    ],
+)
+async def test_select_option(
+    hass: HomeAssistant,
+    client: MagicMock,
+    entity_registry: er.EntityRegistry,
+    key: str,
+    option: str,
+    command: str,
+    value: str,
+) -> None:
+    """Selecting an option sends the receiver's value and shows the option."""
+    await setup_denonavr(hass)
+    entity_id = get_entity_id(entity_registry, SELECT_DOMAIN, key)
+
+    await _select_option(hass, entity_id, option)
+
+    getattr(client, command).assert_awaited_once_with(value)
+    assert hass.states.get(entity_id).state == option
+
+
+@pytest.mark.parametrize(
+    ("error", "available", "error_message"),
+    [
+        pytest.param(
+            AvrCommandError(
+                "Reference level could only be set when DynamicEQ is active",
+                "SetAudyssey",
+            ),
+            True,
+            "Reference level could only be set when DynamicEQ is active",
+            id="rejected_command",
+        ),
+        pytest.param(
+            AvrNetworkError("Connection refused", "SetAudyssey"),
+            False,
+            "Connection refused",
+            id="unreachable_receiver",
+        ),
+    ],
+)
+async def test_select_option_raises_on_avr_error(
+    hass: HomeAssistant,
+    client: MagicMock,
+    entity_registry: er.EntityRegistry,
+    error: Exception,
+    available: bool,
+    error_message: str,
+) -> None:
+    """A receiver error while selecting is surfaced to the user.
+
+    A connectivity failure marks the status coordinator, and with Telnet
+    down and no Audyssey poll of its own the Audyssey one follows.
+    """
+    entry = await setup_denonavr(hass)
+    entity_id = get_entity_id(entity_registry, SELECT_DOMAIN, "reference_level_offset")
+
+    client.async_set_reflevoffset.side_effect = error
+
+    with pytest.raises(HomeAssistantError) as err:
+        await _select_option(hass, entity_id, "5db")
+
+    assert err.value.translation_key == "set_failed"
+    assert (
+        str(err.value)
+        == f"Setting {entity_id} to 5db failed on {TEST_HOST}: {error_message}"
+    )
+    assert entry.runtime_data.coordinator.last_update_success is available
+    assert entry.runtime_data.audyssey_coordinator.last_update_success is available
+    assert (hass.states.get(entity_id).state != STATE_UNAVAILABLE) is available
+
+
+async def test_unavailable_after_connectivity_error_then_recovers(
+    hass: HomeAssistant, client: MagicMock, entity_registry: er.EntityRegistry
+) -> None:
+    """A connectivity-type refresh failure marks the entity unavailable.
+
+    A later successful refresh recovers. Calls async_refresh() directly
+    because the assertions need a synchronous refresh rather than the
+    debounced one an action uses.
+    """
+    entry = await setup_denonavr(hass)
+    entity_id = get_entity_id(entity_registry, SELECT_DOMAIN, "dimmer")
+    assert hass.states.get(entity_id).state != STATE_UNAVAILABLE
+
+    client.async_update.side_effect = AvrNetworkError("Connection refused", "GET")
+    await entry.runtime_data.coordinator.async_refresh()
+    assert hass.states.get(entity_id).state == STATE_UNAVAILABLE
+
+    client.async_update.side_effect = None
+    await entry.runtime_data.coordinator.async_refresh()
+    assert hass.states.get(entity_id).state != STATE_UNAVAILABLE
+
+
+@pytest.mark.parametrize(
+    ("key", "option", "command", "main_power", "zone2_power"),
+    [
+        pytest.param(
+            "eco_mode",
+            "on",
+            "async_eco_mode",
+            POWER_OFF,
+            POWER_ON,
+            id="eco_mode_zone2_only",
+        ),
+        pytest.param(
+            "auto_standby",
+            "15m",
+            "async_auto_standby",
+            POWER_STANDBY,
+            POWER_OFF,
+            id="auto_standby_every_zone_off",
+        ),
+    ],
+)
+async def test_select_option_refused_while_powered_off(
+    hass: HomeAssistant,
+    client: MagicMock,
+    entity_registry: er.EntityRegistry,
+    key: str,
+    option: str,
+    command: str,
+    main_power: str,
+    zone2_power: str,
+) -> None:
+    """A write the receiver would drop is refused before anything is sent.
+
+    Eco mode needs the main zone on although it acts on the whole unit;
+    auto standby is refused only once every zone is off.
+    """
+    await setup_denonavr(hass)
+    entity_id = get_entity_id(entity_registry, SELECT_DOMAIN, key)
+    state_before = hass.states.get(entity_id).state
+    client.power = main_power
+    _add_zone2(client, zone2_power)
+
+    with pytest.raises(ServiceValidationError) as err:
+        await _select_option(hass, entity_id, option)
+
+    assert err.value.translation_key == "receiver_off"
+    getattr(client, command).assert_not_awaited()
+    assert hass.states.get(entity_id).state == state_before
+
+
+@pytest.mark.parametrize(
+    ("main_power", "zone2_power"),
+    [
+        pytest.param(POWER_OFF, POWER_ON, id="zone2_on"),
+        pytest.param(POWER_STANDBY, None, id="zone2_power_unread"),
+    ],
+)
+async def test_auto_standby_applies_while_any_zone_may_be_on(
+    hass: HomeAssistant,
+    client: MagicMock,
+    entity_registry: er.EntityRegistry,
+    main_power: str,
+    zone2_power: str | None,
+) -> None:
+    """Auto standby is sent with the main zone off while zone 2 may be on."""
+    await setup_denonavr(hass)
+    entity_id = get_entity_id(entity_registry, SELECT_DOMAIN, "auto_standby")
+    client.power = main_power
+    _add_zone2(client, zone2_power)
+
+    await _select_option(hass, entity_id, "15m")
+
+    client.async_auto_standby.assert_awaited_once_with("15M")
+    assert hass.states.get(entity_id).state == "15m"
+
+
+@pytest.mark.parametrize(
+    ("key", "option", "update"),
+    [
+        pytest.param("dimmer", "dark", "async_update", id="dimmer"),
+        pytest.param("eco_mode", "off", "async_update", id="eco_mode"),
+        pytest.param("auto_standby", "15m", "async_update", id="auto_standby"),
+        pytest.param(
+            "reference_level_offset",
+            "5db",
+            "async_update_audyssey",
+            id="reference_level_offset",
+        ),
+    ],
+)
+async def test_select_option_confirms_with_one_read(
+    hass: HomeAssistant,
+    client: MagicMock,
+    entity_registry: er.EntityRegistry,
+    key: str,
+    option: str,
+    update: str,
+) -> None:
+    """Selecting an option confirms it with exactly one read.
+
+    should_poll=False, so HA adds no post-call poll of its own. An Audyssey
+    setting confirms too: "Update Audyssey settings" governs the recurring
+    poll alone, and it is off by default.
+    """
+    await setup_denonavr(hass)
+    entity_id = get_entity_id(entity_registry, SELECT_DOMAIN, key)
+    reads_before = getattr(client, update).await_count
+
+    await _select_option(hass, entity_id, option)
+    # blocking=True returns before the debounced confirmation refresh runs.
+    await _wait_for_debounced_refresh(hass)
+
+    assert getattr(client, update).await_count == reads_before + 1
+
+
+async def test_coordinators_serialize_command_and_refresh(
+    hass: HomeAssistant, client: MagicMock, entity_registry: er.EntityRegistry
+) -> None:
+    """A select action and an Audyssey refresh on the shared lock don't overlap.
+
+    Running a command concurrently with a refresh on the other coordinator
+    proves the shared lock serializes them, which asserting that the two
+    lock objects are identical would not.
+    """
+    entry = await setup_denonavr(hass)
+    entity_id = get_entity_id(entity_registry, SELECT_DOMAIN, "dimmer")
+
+    call_order = []
+
+    async def _slow_dimmer_set(option: str) -> None:
+        call_order.append("start-dimmer")
+        await asyncio.sleep(0.05)
+        client.dimmer = option
+        call_order.append("end-dimmer")
+
+    async def _slow_audyssey_update(*args: object, **kwargs: object) -> None:
+        call_order.append("start-audyssey")
+        await asyncio.sleep(0.05)
+        call_order.append("end-audyssey")
+
+    client.async_dimmer.side_effect = _slow_dimmer_set
+    client.async_update_audyssey.side_effect = _slow_audyssey_update
+
+    await asyncio.gather(
+        _select_option(hass, entity_id, "dark"),
+        entry.runtime_data.audyssey_coordinator.async_refresh(),
+    )
+
+    assert call_order in (
+        ["start-dimmer", "end-dimmer", "start-audyssey", "end-audyssey"],
+        ["start-audyssey", "end-audyssey", "start-dimmer", "end-dimmer"],
+    )
+
+
+async def test_refresh_failure_does_not_fail_an_already_successful_action(
+    hass: HomeAssistant, client: MagicMock, entity_registry: er.EntityRegistry
+) -> None:
+    """A refresh failure must not fail an already-successful command.
+
+    The user's requested change already applied; only the confirmation
+    query failed, which should just leave the optimistic value in
+    place rather than surface as an error.
+    """
+    await setup_denonavr(hass)
+    entity_id = get_entity_id(entity_registry, SELECT_DOMAIN, "dimmer")
+
+    client.async_update.side_effect = AvrCommandError("Timed out", "GetDimmer")
+
+    await _select_option(hass, entity_id, "dark")
+
+    client.async_dimmer.assert_awaited_once_with("Dark")
+    assert hass.states.get(entity_id).state == "dark"
+
+
+async def test_rapid_consecutive_selections_do_not_race(
+    hass: HomeAssistant, client: MagicMock, entity_registry: er.EntityRegistry
+) -> None:
+    """Two select_option calls fired back-to-back on the same entity must not race.
+
+    PARALLEL_UPDATES only serializes calls targeting several entities at
+    once, so two calls to this one entity are left to entity.py's lock.
+    """
+    call_order = []
+
+    async def _slow_dimmer_set(value: str) -> None:
+        call_order.append(f"start-{value}")
+        await asyncio.sleep(0.05)
+        client.dimmer = value
+        call_order.append(f"end-{value}")
+
+    client.async_dimmer.side_effect = _slow_dimmer_set
+
+    await setup_denonavr(hass)
+    entity_id = get_entity_id(entity_registry, SELECT_DOMAIN, "dimmer")
+
+    # gather starts the calls in order, and the lock is FIFO.
+    await asyncio.gather(
+        _select_option(hass, entity_id, "dark"),
+        _select_option(hass, entity_id, "dim"),
+    )
+
+    assert call_order == ["start-Dark", "end-Dark", "start-Dim", "end-Dim"]
+    assert hass.states.get(entity_id).state == "dim"
+
+
+@pytest.mark.parametrize(
+    ("key", "event", "attribute", "value", "state"),
+    [
+        pytest.param("multi_eq", "PS", "multi_eq", "Flat", "flat", id="audyssey"),
+        pytest.param("dimmer", "DIM", "dimmer", "Dark", "dark", id="status"),
+    ],
+)
+async def test_telnet_push_updates_entities_without_media_player(
+    hass: HomeAssistant,
+    client: MagicMock,
+    entity_registry: er.EntityRegistry,
+    fire_telnet_event: Callable[[str, str, str], None],
+    key: str,
+    event: str,
+    attribute: str,
+    value: str,
+    state: str,
+) -> None:
+    """A Telnet push reaches the selects on either coordinator.
+
+    Registered on the receiver rather than on an entity, whose callback
+    would run only while that entity is enabled. The polls skip while Telnet
+    is healthy, so the push is the only thing that could update them.
+    """
+    client.telnet_connected = True
+    client.telnet_healthy = True
+    with patch("homeassistant.components.denonavr.PLATFORMS", [Platform.SELECT]):
+        await setup_denonavr(hass)
+    entity_id = get_entity_id(entity_registry, SELECT_DOMAIN, key)
+
+    setattr(client, attribute, value)
+    fire_telnet_event("Main", event, "")
+
+    assert hass.states.get(entity_id).state == state
+
+
+@pytest.mark.parametrize(
+    "leave_status",
+    [
+        pytest.param(lambda coordinator: None, id="healthy"),
+        # The push then also clears the failure.
+        pytest.param(mark_unavailable, id="after_failure"),
+    ],
+)
+async def test_telnet_push_keeps_an_actions_confirmation_refresh(
+    hass: HomeAssistant,
+    client: MagicMock,
+    entity_registry: er.EntityRegistry,
+    fire_telnet_event: Callable[[str, str, str], None],
+    leave_status: Callable[[DenonAvrDataUpdateCoordinator], None],
+) -> None:
+    """An unrelated push must not cancel the refresh confirming an action."""
+    entry = await setup_denonavr(hass)
+    entity_id = get_entity_id(entity_registry, SELECT_DOMAIN, "dimmer")
+    baseline_calls = client.async_update.await_count
+
+    await _select_option(hass, entity_id, "dark")
+    leave_status(entry.runtime_data.coordinator)
+    fire_telnet_event("Main", "MV", "50")
+    await _wait_for_debounced_refresh(hass)
+
+    assert hass.states.get(entity_id).state != STATE_UNAVAILABLE
+    assert client.async_update.await_count == baseline_calls + 1
+
+
+@pytest.mark.parametrize(
+    ("domain", "key"),
+    [
+        pytest.param(SWITCH_DOMAIN, "dynamic_eq", id="dynamic_eq"),
+        pytest.param(
+            SELECT_DOMAIN, "reference_level_offset", id="reference_level_offset"
+        ),
+        pytest.param(SELECT_DOMAIN, "dynamic_volume", id="dynamic_volume"),
+        pytest.param(SELECT_DOMAIN, "multi_eq", id="multi_eq"),
+    ],
+)
+async def test_audyssey_entities_not_unavailable_on_fresh_setup(
+    hass: HomeAssistant,
+    client: MagicMock,
+    entity_registry: er.EntityRegistry,
+    domain: str,
+    key: str,
+) -> None:
+    """Audyssey-dependent entities aren't unavailable after a fresh setup.
+
+    Nothing in the regular poll loop fetches Audyssey data unless
+    "Update Audyssey settings" is on - without the one-time initial
+    fetch, these entities (reference_level_offset especially, since it
+    also gates on dynamic_eq) would stay unavailable indefinitely.
+    """
+    client.dynamic_eq = None
+    client.reference_level_offset = None
+    client.dynamic_volume = None
+    client.multi_eq = None
+
+    async def _populate_audyssey(*args: object, **kwargs: object) -> None:
+        client.dynamic_eq = True
+        client.reference_level_offset = "0dB"
+        client.dynamic_volume = "Off"
+        client.multi_eq = "Reference"
+
+    client.async_update_audyssey.side_effect = _populate_audyssey
+
+    # The option's default.
+    await setup_denonavr(hass, options={CONF_UPDATE_AUDYSSEY: False})
+
+    entity_id = get_entity_id(entity_registry, domain, key)
+    assert hass.states.get(entity_id).state != STATE_UNAVAILABLE
+
+
+async def test_option_shown_immediately_even_if_refresh_reads_back_stale_value(
+    hass: HomeAssistant, client: MagicMock, entity_registry: er.EntityRegistry
+) -> None:
+    """A stale confirmation refresh must not revert to the previous value."""
+    # The refresh reports the old value, as if the command had not settled yet.
+    client.async_update.side_effect = lambda *a, **k: None  # dimmer stays "Bright"
+
+    entry = await setup_denonavr(hass)
+    entity_id = get_entity_id(entity_registry, SELECT_DOMAIN, "dimmer")
+
+    await _select_option(hass, entity_id, "dark")
+    # Let the debounced confirmation refresh run its stale read.
+    await _wait_for_debounced_refresh(hass)
+
+    client.async_dimmer.assert_awaited_once_with("Dark")
+    assert hass.states.get(entity_id).state == "dark"
+
+    client.dimmer = "Dark"
+    await entry.runtime_data.coordinator.async_refresh()
+    assert hass.states.get(entity_id).state == "dark"
+
+    # Shows through only if the read-back above cleared the pending value.
+    client.dimmer = "Bright"
+    await entry.runtime_data.coordinator.async_refresh()
+    assert hass.states.get(entity_id).state == "bright"
+
+
+async def test_pending_option_expires_instead_of_masking_forever(
+    hass: HomeAssistant,
+    client: MagicMock,
+    entity_registry: er.EntityRegistry,
+    freezer: FrozenDateTimeFactory,
+) -> None:
+    """The pending override must expire rather than mask reality forever.
+
+    A command that silently did not apply, or an external change landing
+    while a value is pending, leaves the receiver's value never catching
+    up, and the override has to give way to it.
+    """
+    client.async_update.side_effect = lambda *a, **k: None  # dimmer stays "Bright"
+
+    await setup_denonavr(hass)
+    entity_id = get_entity_id(entity_registry, SELECT_DOMAIN, "dimmer")
+
+    await _select_option(hass, entity_id, "dark")
+    assert hass.states.get(entity_id).state == "dark"
+
+    # The front panel changes it to something else entirely while the
+    # override is pending.
+    client.dimmer = "Dim"
+    await _advance(hass, freezer, PENDING_VALUE_TIMEOUT + 1)
+
+    assert hass.states.get(entity_id).state == "dim"
+
+
+@pytest.mark.parametrize(
+    ("telnet_healthy", "pref_disable_polling"),
+    [
+        # An ordinary refresh skips the read while Telnet is healthy, and
+        # expiry means no Telnet push confirmed the value.
+        pytest.param(True, False, id="telnet_healthy"),
+        pytest.param(False, True, id="polling_disabled"),
+    ],
+)
+async def test_pending_expiry_reads_the_receiver(
+    hass: HomeAssistant,
+    client: MagicMock,
+    entity_registry: er.EntityRegistry,
+    freezer: FrozenDateTimeFactory,
+    telnet_healthy: bool,
+    pref_disable_polling: bool,
+) -> None:
+    """Expiry asks for one more read, not just shows the stale value.
+
+    Without it, a command that was simply slow to apply would be stuck
+    showing the pre-command value when no poll reads it again.
+    """
+    await setup_denonavr(hass, pref_disable_polling=pref_disable_polling)
+    client.telnet_connected = telnet_healthy
+    client.telnet_healthy = telnet_healthy
+    entity_id = get_entity_id(entity_registry, SELECT_DOMAIN, "dimmer")
+
+    await _select_option(hass, entity_id, "dark")
+    # Well short of the expiry, so only the confirming refresh runs.
+    await _advance(hass, freezer, 1)
+    calls_after_action = client.async_update.await_count
+
+    await _advance(hass, freezer, PENDING_VALUE_TIMEOUT)
+
+    assert client.async_update.await_count == calls_after_action + 1
+
+
+async def test_expiries_of_settings_changed_together_share_one_refresh(
+    hass: HomeAssistant,
+    client: MagicMock,
+    entity_registry: er.EntityRegistry,
+    freezer: FrozenDateTimeFactory,
+) -> None:
+    """Settings that expire together must not each read the receiver.
+
+    Every one of these reads is a full Audyssey round trip, and a refresh
+    already running when the next expiry fires started well after the
+    command that expiry gave up on, so it confirms that one too.
+    """
+    await setup_denonavr(hass, options={CONF_UPDATE_AUDYSSEY: False})
+
+    await _select_option(
+        hass, get_entity_id(entity_registry, SELECT_DOMAIN, "multi_eq"), "flat"
+    )
+    await _select_option(
+        hass, get_entity_id(entity_registry, SELECT_DOMAIN, "dynamic_volume"), "heavy"
+    )
+    # Well short of the expiry, so only the confirming refreshes run and
+    # the count below covers the two expiries alone. The receiver never
+    # reports the new values, so both stay pending.
+    await _advance(hass, freezer, 1)
+    calls_after_actions = client.async_update_audyssey.await_count
+
+    async def _suspending_update(*args: object, **kwargs: object) -> None:
+        # Yields so the second expiry arrives while the first is still
+        # refreshing; without it the mock never suspends.
+        await asyncio.sleep(0)
+
+    client.async_update_audyssey.side_effect = _suspending_update
+
+    await _advance(hass, freezer, PENDING_VALUE_TIMEOUT + 1)
+
+    assert client.async_update_audyssey.await_count == calls_after_actions + 1
+
+
+@pytest.mark.parametrize(
+    ("key", "command", "option", "event"),
+    [
+        pytest.param("multi_eq", "async_set_multieq", "flat", "PS", id="audyssey"),
+        pytest.param("dimmer", "async_dimmer", "dark", "DIM", id="status"),
+    ],
+)
+async def test_telnet_update_clears_a_connectivity_failure(
+    hass: HomeAssistant,
+    client: MagicMock,
+    entity_registry: er.EntityRegistry,
+    fire_telnet_event: Callable[[str, str, str], None],
+    key: str,
+    command: str,
+    option: str,
+    event: str,
+) -> None:
+    """A Telnet push has to restore availability, not only notify listeners.
+
+    With "Update Audyssey settings" off the Audyssey coordinator has no poll
+    of its own, and with polling disabled neither has, so notifying alone
+    would leave these entities unavailable while Telnet keeps them current.
+    """
+    await setup_denonavr(hass, options={CONF_UPDATE_AUDYSSEY: False})
+    entity_id = get_entity_id(entity_registry, SELECT_DOMAIN, key)
+
+    getattr(client, command).side_effect = AvrNetworkError(
+        "Connection refused", "SetAudyssey"
+    )
+    with pytest.raises(HomeAssistantError):
+        await _select_option(hass, entity_id, option)
+    assert hass.states.get(entity_id).state == STATE_UNAVAILABLE
+
+    fire_telnet_event("Main", event, "")
+    await hass.async_block_till_done()
+
+    assert hass.states.get(entity_id).state != STATE_UNAVAILABLE
+
+
+async def test_toggling_switch_updates_dependent_select(
+    hass: HomeAssistant, client: MagicMock, entity_registry: er.EntityRegistry
+) -> None:
+    """Toggling Audyssey Dynamic EQ off also updates Audyssey reference level offset.
+
+    Both entities share the Audyssey coordinator, so the one refresh
+    confirming the switch's action notifies the select too.
+    """
+    await setup_denonavr(hass)
+
+    switch_entity_id = get_entity_id(entity_registry, SWITCH_DOMAIN, "dynamic_eq")
+    select_entity_id = get_entity_id(
+        entity_registry, SELECT_DOMAIN, "reference_level_offset"
+    )
+    assert hass.states.get(select_entity_id).state != STATE_UNAVAILABLE
+
+    async def _turn_off(*args: object, **kwargs: object) -> None:
+        client.dynamic_eq = False
+
+    client.async_dynamic_eq_off.side_effect = _turn_off
+    audyssey_reads = client.async_update_audyssey.await_count
+
+    await hass.services.async_call(
+        SWITCH_DOMAIN,
+        SERVICE_TURN_OFF,
+        {ATTR_ENTITY_ID: switch_entity_id},
+        blocking=True,
+    )
+    await _wait_for_debounced_refresh(hass)
+
+    assert client.async_update_audyssey.await_count == audyssey_reads + 1
+    assert hass.states.get(switch_entity_id).state == STATE_OFF
+    assert hass.states.get(select_entity_id).state == STATE_UNAVAILABLE

@@ -3,7 +3,7 @@
 import asyncio
 from collections.abc import Awaitable, Callable
 from datetime import timedelta
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from denonavr.exceptions import (
     AvrCommandError,
@@ -13,7 +13,11 @@ from denonavr.exceptions import (
 from freezegun.api import FrozenDateTimeFactory
 import pytest
 
-from homeassistant.components.denonavr.const import DOMAIN
+from homeassistant.components.denonavr.const import (
+    CONF_UPDATE_AUDYSSEY,
+    COORDINATOR_UPDATE_INTERVAL,
+    DOMAIN,
+)
 from homeassistant.components.denonavr.coordinator import (
     DenonAvrDataUpdateCoordinator,
     async_refresh_audyssey,
@@ -21,6 +25,8 @@ from homeassistant.components.denonavr.coordinator import (
     mark_unavailable,
 )
 from homeassistant.core import HomeAssistant
+
+from . import setup_denonavr
 
 from tests.common import MockConfigEntry, async_fire_time_changed
 
@@ -264,3 +270,111 @@ async def test_removing_an_internal_listener_stops_its_updates(
     coordinator.async_update_listeners()
 
     assert calls == 1
+
+
+@pytest.mark.parametrize(
+    ("options", "audyssey_available"),
+    [
+        pytest.param({}, False, id="audyssey_has_no_poll"),
+        pytest.param({CONF_UPDATE_AUDYSSEY: True}, True, id="audyssey_polls"),
+    ],
+)
+async def test_general_failure_reaches_audyssey_only_where_it_cannot_read(
+    hass: HomeAssistant,
+    client: MagicMock,
+    options: dict[str, bool],
+    audyssey_available: bool,
+) -> None:
+    """Without a poll of its own it has to be handed the verdict.
+
+    With one it has already reached the receiver, and Audyssey selects
+    showing data the receiver just answered for beats hiding them over a
+    failure on the other coordinator's query.
+    """
+    entry = await setup_denonavr(hass, options=options)
+
+    client.async_update.side_effect = AvrNetworkError("Connection refused", "GET")
+    await entry.runtime_data.coordinator.async_refresh()
+
+    assert (
+        entry.runtime_data.audyssey_coordinator.last_update_success
+        is audyssey_available
+    )
+
+
+async def test_audyssey_coordinator_polls_when_option_on(
+    hass: HomeAssistant, client: MagicMock, freezer: FrozenDateTimeFactory
+) -> None:
+    """The Audyssey coordinator actually polls on a schedule when the option is on.
+
+    Exercises the real behavior (a call once the interval elapses)
+    rather than just asserting update_interval was set, which would
+    still pass even if the recurring poll's own listener registration
+    were broken.
+    """
+    await setup_denonavr(hass, options={CONF_UPDATE_AUDYSSEY: True})
+    calls_before = client.async_update_audyssey.await_count
+
+    freezer.tick(timedelta(seconds=COORDINATOR_UPDATE_INTERVAL + 1))
+    async_fire_time_changed(hass)
+    await hass.async_block_till_done()
+
+    assert client.async_update_audyssey.await_count > calls_before
+
+
+async def test_audyssey_coordinator_skips_poll_when_telnet_healthy(
+    hass: HomeAssistant, client: MagicMock, freezer: FrozenDateTimeFactory
+) -> None:
+    """A scheduled Audyssey poll is skipped once Telnet already keeps it current.
+
+    Mirrors async_refresh_status's own guard for the general
+    coordinator - Telnet already pushes these settings live (see
+    __init__.py's Telnet listener), so the receiver shouldn't be sent a
+    full AppCommand0300 round trip again every interval.
+    """
+    await setup_denonavr(hass, options={CONF_UPDATE_AUDYSSEY: True})
+    client.telnet_connected = True
+    client.telnet_healthy = True
+    calls_before = client.async_update_audyssey.await_count
+
+    freezer.tick(timedelta(seconds=COORDINATOR_UPDATE_INTERVAL + 1))
+    async_fire_time_changed(hass)
+    await hass.async_block_till_done()
+
+    assert client.async_update_audyssey.await_count == calls_before
+
+
+async def test_audyssey_coordinator_does_not_poll_when_option_off(
+    hass: HomeAssistant, client: MagicMock, freezer: FrozenDateTimeFactory
+) -> None:
+    """Without the option the Audyssey coordinator does not poll on a schedule.
+
+    It still refreshes on demand, such as right after an action.
+    """
+    await setup_denonavr(hass, options={CONF_UPDATE_AUDYSSEY: False})
+    calls_before = client.async_update_audyssey.await_count
+
+    freezer.tick(timedelta(seconds=COORDINATOR_UPDATE_INTERVAL + 1))
+    async_fire_time_changed(hass)
+    await hass.async_block_till_done()
+
+    assert client.async_update_audyssey.await_count == calls_before
+
+
+async def test_audyssey_poll_needs_an_entity_not_just_internal_wiring(
+    hass: HomeAssistant, client: MagicMock, freezer: FrozenDateTimeFactory
+) -> None:
+    """The cross-coordinator wiring alone must not keep the poll running.
+
+    Loading no platforms leaves that wiring as the only subscriber, so a
+    poll here would be one no entity ever asked for.
+    """
+    with patch("homeassistant.components.denonavr.PLATFORMS", []):
+        await setup_denonavr(hass, options={CONF_UPDATE_AUDYSSEY: True})
+        calls_before = client.async_update_audyssey.await_count
+
+        freezer.tick(timedelta(seconds=COORDINATOR_UPDATE_INTERVAL + 1))
+        async_fire_time_changed(hass)
+        await hass.async_block_till_done()
+
+    assert client.async_update_audyssey.await_count == calls_before

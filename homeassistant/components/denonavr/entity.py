@@ -51,13 +51,17 @@ def audyssey_available(receiver: DenonAVR) -> bool:
     return receiver.sound_mode not in ("DIRECT", "PURE DIRECT")
 
 
-def raise_if_powered_off(receiver: DenonAVR, entity_id: str) -> None:
+def raise_if_powered_off(
+    receiver: DenonAVR, entity_id: str, *, any_zone_on: bool = False
+) -> None:
     """Refuse a write while the receiver is known to be off.
 
     Off, it answers a setting write OK and drops it. A power not read yet
-    lets the write through.
+    lets the write through. A setting the receiver applies with any zone on
+    is refused only while every zone is off.
     """
-    if receiver.power not in (None, POWER_ON):
+    zones = receiver.zones.values() if any_zone_on else (receiver,)
+    if all(zone.power not in (None, POWER_ON) for zone in zones):
         raise ServiceValidationError(
             translation_domain=DOMAIN,
             translation_key="receiver_off",
@@ -76,9 +80,11 @@ class DenonAvrPendingValueEntity[_T](CoordinatorEntity[DenonAvrDataUpdateCoordin
         config_entry: DenonavrConfigEntry,
         key: str,
         follows_other_coordinator: bool = False,
+        any_zone_on: bool = False,
     ) -> None:
         """Initialize the entity on the receiver's device."""
         super().__init__(coordinator)
+        self._any_zone_on = any_zone_on
         self._data = config_entry.runtime_data
         self._follows_other_coordinator = follows_other_coordinator
         self._receiver = coordinator.receiver
@@ -121,8 +127,9 @@ class DenonAvrPendingValueEntity[_T](CoordinatorEntity[DenonAvrDataUpdateCoordin
     def _async_handle_pending_expiry(self, _now: Any) -> None:
         """Give up on an unconfirmed pending value and read the receiver.
 
-        The Audyssey poll is off by default, so without this the state could
-        keep showing the pending value with nothing left to correct it.
+        No poll is guaranteed to follow: the Audyssey one is off by default
+        and polling can be disabled, so without this the state could keep
+        showing the pending value with nothing left to correct it.
         Forced, because expiry means no Telnet push confirmed the value and
         the Telnet-healthy skip would drop the read meant to replace it.
         """
@@ -193,7 +200,9 @@ class DenonAvrPendingValueEntity[_T](CoordinatorEntity[DenonAvrDataUpdateCoordin
         """Send a command, update optimistically, then request confirmation."""
         async with self._action_lock:
             # Before the optimistic value, which would otherwise show and snap back.
-            raise_if_powered_off(self._receiver, self.entity_id)
+            raise_if_powered_off(
+                self._receiver, self.entity_id, any_zone_on=self._any_zone_on
+            )
             try:
                 await send()
             except DenonAvrError as err:
