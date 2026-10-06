@@ -1,14 +1,11 @@
 """The tests for the denonavr media player platform."""
 
 import asyncio
-from collections.abc import Generator, Mapping
 from datetime import timedelta
 import logging
-from typing import Any
 from unittest.mock import MagicMock, create_autospec, patch
 
 from denonavr import DenonAVR
-from denonavr.const import POWER_ON
 from denonavr.exceptions import (
     AvrCommandError,
     AvrForbiddenError,
@@ -21,12 +18,7 @@ from freezegun.api import FrozenDateTimeFactory
 import pytest
 
 from homeassistant.components import media_player
-from homeassistant.components.denonavr.config_flow import (
-    CONF_MANUFACTURER,
-    CONF_SERIAL_NUMBER,
-    CONF_TYPE,
-    DOMAIN,
-)
+from homeassistant.components.denonavr.config_flow import DOMAIN
 from homeassistant.components.denonavr.const import (
     ATTR_DYNAMIC_EQ,
     CONF_UPDATE_AUDYSSEY,
@@ -44,8 +36,6 @@ from homeassistant.components.homeassistant import SERVICE_UPDATE_ENTITY
 from homeassistant.config_entries import ConfigEntryState
 from homeassistant.const import (
     ATTR_ENTITY_ID,
-    CONF_HOST,
-    CONF_MODEL,
     SERVICE_VOLUME_UP,
     STATE_UNAVAILABLE,
     STATE_UNKNOWN,
@@ -54,82 +44,11 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers import device_registry as dr, entity_registry as er
 from homeassistant.setup import async_setup_component
 
-from tests.common import MockConfigEntry, async_fire_time_changed
+from . import TEST_NAME, TEST_UNIQUE_ID, TEST_ZONE, setup_denonavr
 
-TEST_HOST = "1.2.3.4"
-TEST_NAME = "Test_Receiver"
-TEST_MODEL = "model5"
-TEST_SERIALNUMBER = "123456789"
-TEST_MANUFACTURER = "Denon"
-TEST_RECEIVER_TYPE = "avr-x"
-TEST_ZONE = "Main"
-TEST_UNIQUE_ID = f"{TEST_MODEL}-{TEST_SERIALNUMBER}"
-TEST_TIMEOUT = 2
-TEST_SHOW_ALL_SOURCES = False
-TEST_ZONE2 = False
-TEST_ZONE3 = False
+from tests.common import async_fire_time_changed
+
 ENTITY_ID = f"{media_player.DOMAIN}.{TEST_NAME}"
-
-
-@pytest.fixture(name="client")
-def client_fixture() -> Generator[MagicMock]:
-    """Patch of client library for tests."""
-    with (
-        patch(
-            "homeassistant.components.denonavr.receiver.DenonAVR",
-            autospec=True,
-        ) as mock_client_class,
-        patch("homeassistant.components.denonavr.config_flow.denonavr.async_discover"),
-    ):
-        mock_client_class.return_value.name = TEST_NAME
-        mock_client_class.return_value.model_name = TEST_MODEL
-        mock_client_class.return_value.serial_number = TEST_SERIALNUMBER
-        mock_client_class.return_value.manufacturer = TEST_MANUFACTURER
-        mock_client_class.return_value.receiver_type = TEST_RECEIVER_TYPE
-        mock_client_class.return_value.zone = TEST_ZONE
-        mock_client_class.return_value.input_func_list = []
-        mock_client_class.return_value.sound_mode_list = []
-        mock_client_class.return_value.zones = {"Main": mock_client_class.return_value}
-        mock_client_class.return_value.telnet_connected = False
-        mock_client_class.return_value.telnet_healthy = False
-        mock_client_class.return_value.dynamic_eq = True
-        yield mock_client_class.return_value
-
-
-async def setup_denonavr(
-    hass: HomeAssistant,
-    serial_number: str | None = TEST_SERIALNUMBER,
-    options: Mapping[str, Any] | None = None,
-    pref_disable_polling: bool = False,
-) -> MockConfigEntry:
-    """Initialize media_player for tests."""
-    entry_data = {
-        CONF_HOST: TEST_HOST,
-        CONF_MODEL: TEST_MODEL,
-        CONF_TYPE: TEST_RECEIVER_TYPE,
-        CONF_MANUFACTURER: TEST_MANUFACTURER,
-        CONF_SERIAL_NUMBER: serial_number,
-    }
-
-    mock_entry = MockConfigEntry(
-        domain=DOMAIN,
-        unique_id=TEST_UNIQUE_ID if serial_number else None,
-        data=entry_data,
-        options=options or {},
-        pref_disable_polling=pref_disable_polling,
-    )
-
-    mock_entry.add_to_hass(hass)
-
-    await hass.config_entries.async_setup(mock_entry.entry_id)
-    await hass.async_block_till_done()
-
-    state = hass.states.get(ENTITY_ID)
-
-    assert state
-    assert state.name == TEST_NAME
-
-    return mock_entry
 
 
 @pytest.mark.usefixtures("client")
@@ -269,7 +188,6 @@ async def test_dynamic_eq_attribute_updates_from_audyssey_coordinator(
     coordinator alone, which is not the one that fetches Audyssey data.
     """
     entry = await setup_denonavr(hass)
-    client.power = POWER_ON
     client.dynamic_eq = True
     entry.runtime_data.audyssey_coordinator.async_update_listeners()
     await hass.async_block_till_done()
@@ -857,22 +775,7 @@ async def test_setup_retry_on_request_error(
         "Server disconnected without sending a response", "GET"
     )
 
-    entry = MockConfigEntry(
-        domain=DOMAIN,
-        unique_id=TEST_UNIQUE_ID,
-        data={
-            CONF_HOST: TEST_HOST,
-            CONF_MODEL: TEST_MODEL,
-            CONF_TYPE: TEST_RECEIVER_TYPE,
-            CONF_MANUFACTURER: TEST_MANUFACTURER,
-            CONF_SERIAL_NUMBER: TEST_SERIALNUMBER,
-        },
-        options={CONF_USE_TELNET: True},
-    )
-    entry.add_to_hass(hass)
-
-    await hass.config_entries.async_setup(entry.entry_id)
-    await hass.async_block_till_done()
+    entry = await setup_denonavr(hass, options={CONF_USE_TELNET: True})
 
     assert entry.state is ConfigEntryState.SETUP_RETRY
 
