@@ -32,6 +32,21 @@
       }
     }
   },
+  "entity": {
+    "switch": {
+      "dynamic_eq": {
+        "name": "Audyssey Dynamic EQ"
+      }
+    }
+  },
+  "exceptions": {
+    "receiver_off": {
+      "message": "Cannot change {entity_id} while the zone it applies to is off"
+    },
+    "set_failed": {
+      "message": "Setting {entity_id} to {value} failed on {host}: {error}"
+    }
+  },
   "options": {
     "step": {
       "init": {

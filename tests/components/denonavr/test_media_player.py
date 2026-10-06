@@ -188,23 +188,23 @@ async def test_queued_commands_warn_once_when_the_receiver_drops(
     assert caplog.text.count("Network error connecting") == 1
 
 
-async def test_audyssey_command_failure_warns_with_polling_disabled(
+async def test_audyssey_read_failure_warns_with_polling_disabled(
     hass: HomeAssistant, client: MagicMock, caplog: pytest.LogCaptureFixture
 ) -> None:
-    """The first failure warns though the command already marked it unavailable.
+    """The first failure warns though the read already marked it unavailable.
 
     With polling disabled the Audyssey failure reaches the status coordinator
     before the decorator sees the exception.
     """
     await setup_denonavr(hass, pref_disable_polling=True)
-    client.async_dynamic_eq_on.side_effect = AvrNetworkError(
-        "Network error", "SetAudyssey"
+    client.async_update_audyssey.side_effect = AvrNetworkError(
+        "Network error", "GetAudyssey"
     )
 
     await hass.services.async_call(
         DOMAIN,
-        SERVICE_SET_DYNAMIC_EQ,
-        {ATTR_ENTITY_ID: ENTITY_ID, ATTR_DYNAMIC_EQ: True},
+        SERVICE_UPDATE_AUDYSSEY,
+        {ATTR_ENTITY_ID: ENTITY_ID},
         blocking=True,
     )
 
@@ -231,18 +231,30 @@ async def test_dynamic_eq_attribute_updates_from_audyssey_coordinator(
     assert hass.states.get(ENTITY_ID).attributes[ATTR_DYNAMIC_EQ] is False
 
 
-async def test_set_dynamic_eq_connectivity_error_marks_audyssey_unavailable(
-    hass: HomeAssistant, client: MagicMock
+@pytest.mark.parametrize(
+    ("telnet_healthy", "audyssey_available"),
+    [
+        pytest.param(True, True, id="telnet_healthy"),
+        pytest.param(False, False, id="telnet_down"),
+    ],
+)
+async def test_set_dynamic_eq_connectivity_error_reaches_audyssey_only_through_status(
+    hass: HomeAssistant,
+    client: MagicMock,
+    freezer: FrozenDateTimeFactory,
+    telnet_healthy: bool,
+    audyssey_available: bool,
 ) -> None:
-    """A connectivity failure here also affects the Audyssey coordinator.
+    """A connectivity failure marks status, which Audyssey follows with Telnet down.
 
-    This command is Audyssey-scoped, sent directly to the receiver
-    rather than through that coordinator - so on a connectivity
-    failure, only marking the general coordinator unavailable (what
-    the decorator already does) would let the Audyssey coordinator keep
-    skipping its reads while its data is stale.
+    With Telnet healthy and no Audyssey poll, nothing but an Audyssey push
+    would clear a failure marked on it directly, so the Dynamic EQ switch
+    would stay unavailable after status recovered.
     """
-    entry = await setup_denonavr(hass)
+    client.telnet_connected = True
+    client.telnet_healthy = True
+    entry = await setup_denonavr(hass, options={CONF_USE_TELNET: True})
+    client.telnet_healthy = telnet_healthy
     client.async_dynamic_eq_on.side_effect = AvrNetworkError(
         "Connection refused", "SetAudyssey"
     )
@@ -251,10 +263,22 @@ async def test_set_dynamic_eq_connectivity_error_marks_audyssey_unavailable(
         DOMAIN,
         SERVICE_SET_DYNAMIC_EQ,
         {ATTR_ENTITY_ID: ENTITY_ID, ATTR_DYNAMIC_EQ: True},
+        blocking=True,
     )
+
+    assert entry.runtime_data.coordinator.last_update_success is False
+    assert (
+        entry.runtime_data.audyssey_coordinator.last_update_success
+        is audyssey_available
+    )
+
+    # A failed status coordinator reads on its next poll, Telnet or not.
+    freezer.tick(timedelta(seconds=11))
+    async_fire_time_changed(hass)
     await hass.async_block_till_done()
 
-    assert entry.runtime_data.audyssey_coordinator.last_update_success is False
+    assert entry.runtime_data.coordinator.last_update_success is True
+    assert entry.runtime_data.audyssey_coordinator.last_update_success is True
 
 
 async def test_dynamic_eq(hass: HomeAssistant, client: MagicMock) -> None:

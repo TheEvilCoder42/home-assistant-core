@@ -11,6 +11,7 @@ from homeassistant.components.denonavr.config_flow import (
 )
 from homeassistant.const import CONF_HOST, CONF_MODEL
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers import entity_registry as er
 
 from tests.common import MockConfigEntry
 
@@ -51,3 +52,12 @@ async def setup_denonavr(
     await hass.config_entries.async_setup(mock_entry.entry_id)
     await hass.async_block_till_done()
     return mock_entry
+
+
+def get_entity_id(entity_registry: er.EntityRegistry, domain: str, key: str) -> str:
+    """Return the entity_id of the receiver-level entity with this key."""
+    entity_id = entity_registry.async_get_entity_id(
+        domain, DOMAIN, f"{TEST_UNIQUE_ID}-{key}"
+    )
+    assert entity_id is not None
+    return entity_id

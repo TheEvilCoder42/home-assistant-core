@@ -494,16 +494,12 @@ class DenonDevice(CoordinatorEntity[DenonAvrDataUpdateCoordinator], MediaPlayerE
     @async_log_errors
     async def async_set_dynamic_eq(self, dynamic_eq: bool) -> None:
         """Turn DynamicEQ on or off."""
-        try:
-            if dynamic_eq:
-                await self._receiver.async_dynamic_eq_on()
-            else:
-                await self._receiver.async_dynamic_eq_off()
-        except UNAVAILABLE_ON:
-            # An Audyssey-scoped command, so that coordinator's data cannot
-            # be trusted either, not just the general one the decorator marks.
-            mark_unavailable(self._audyssey_coordinator)
-            raise
+        # A connectivity failure marks status alone, through the decorator:
+        # marked here, Audyssey would outlast status until an Audyssey push.
+        if dynamic_eq:
+            await self._receiver.async_dynamic_eq_on()
+        else:
+            await self._receiver.async_dynamic_eq_off()
 
         # The option governs the recurring poll alone. Safe inside the
         # decorator's lock: async_request_refresh() only schedules. It skips
