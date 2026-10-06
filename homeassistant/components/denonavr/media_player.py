@@ -44,7 +44,6 @@ from . import DenonavrConfigEntry
 from .const import (
     ATTR_DYNAMIC_EQ,
     CONF_MANUFACTURER,
-    CONF_SERIAL_NUMBER,
     CONF_UPDATE_AUDYSSEY,
     DEFAULT_UPDATE_AUDYSSEY,
     DOMAIN,
@@ -56,6 +55,7 @@ from .coordinator import (
     async_update_zone_audyssey,
     mark_unavailable,
 )
+from .entity import receiver_unique_id
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -97,23 +97,18 @@ async def async_setup_entry(
     async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Set up the DenonAVR receiver from a config entry."""
-    entities = []
     data = config_entry.runtime_data
     receiver = data.receiver
-    for receiver_zone in receiver.zones.values():
-        if config_entry.data[CONF_SERIAL_NUMBER] is not None:
-            unique_id = f"{config_entry.unique_id}-{receiver_zone.zone}"
-        else:
-            unique_id = f"{config_entry.entry_id}-{receiver_zone.zone}"
-        entities.append(
-            DenonDevice(
-                data.coordinator,
-                data.audyssey_coordinator,
-                receiver_zone,
-                unique_id,
-                config_entry,
-            )
+    entities = [
+        DenonDevice(
+            data.coordinator,
+            data.audyssey_coordinator,
+            receiver_zone,
+            receiver_unique_id(config_entry, receiver_zone.zone),
+            config_entry,
         )
+        for receiver_zone in receiver.zones.values()
+    ]
     _LOGGER.debug(
         "%s receiver at host %s initialized", receiver.manufacturer, receiver.host
     )
