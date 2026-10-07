@@ -37,13 +37,14 @@ from . import (
     TEST_MODEL,
     TEST_NAME,
     TEST_RECEIVER_TYPE,
+    TEST_SERIALNUMBER,
     TEST_UNIQUE_ID,
     advance_time,
     get_entity_id,
     setup_denonavr,
 )
 
-from tests.common import async_fire_time_changed
+from tests.common import MockConfigEntry, async_fire_time_changed
 
 
 async def test_setup_skips_redundant_settings_refresh_with_telnet(
@@ -204,32 +205,57 @@ async def test_unload_disconnects_telnet(
         pytest.param(CONF_ZONE3, "Zone3", id="zone3"),
     ],
 )
+@pytest.mark.parametrize(
+    ("serial_number", "unique_id_base"),
+    [
+        pytest.param(TEST_SERIALNUMBER, lambda entry: TEST_UNIQUE_ID, id="serial"),
+        # Without a serial the entry has no unique_id and its entities are
+        # keyed by entry_id; the cleanup has to follow the same rule.
+        pytest.param(None, lambda entry: entry.entry_id, id="no_serial"),
+    ],
+)
 @pytest.mark.usefixtures("client")
 async def test_unload_removes_disabled_zone_entity(
     hass: HomeAssistant,
     entity_registry: er.EntityRegistry,
     zone_option: str,
     zone_unique_id_suffix: str,
+    serial_number: str | None,
+    unique_id_base: Callable[[MockConfigEntry], str],
 ) -> None:
     """A zone entity must be removed from the registry once its option is turned off.
 
     Simulates a stray leftover entity from when the zone option was
     previously enabled - the real zone-creation path isn't exercised
-    here since the client mock always reports a single "Main" zone.
+    here since the default client mock reports a single "Main" zone.
     """
-    entry = await setup_denonavr(hass, options={zone_option: False})
+    entry = await setup_denonavr(
+        hass, serial_number=serial_number, options={zone_option: False}
+    )
+    zone_unique_id = f"{unique_id_base(entry)}-{zone_unique_id_suffix}"
 
     stray_entity_id = entity_registry.async_get_or_create(
         "media_player",
         DOMAIN,
-        f"{TEST_UNIQUE_ID}-{zone_unique_id_suffix}",
+        zone_unique_id,
         config_entry=entry,
+    ).entity_id
+    # A zone owns more than its media player: the zone-scoped settings
+    # carry the zone in the middle of their unique_id, not at the end.
+    # Disabled, as the volume is by default.
+    stray_setting_entity_id = entity_registry.async_get_or_create(
+        "number",
+        DOMAIN,
+        f"{zone_unique_id}-volume",
+        config_entry=entry,
+        disabled_by=er.RegistryEntryDisabler.INTEGRATION,
     ).entity_id
 
     await hass.config_entries.async_unload(entry.entry_id)
     await hass.async_block_till_done()
 
     assert entity_registry.async_get(stray_entity_id) is None
+    assert entity_registry.async_get(stray_setting_entity_id) is None
 
 
 @pytest.mark.parametrize(

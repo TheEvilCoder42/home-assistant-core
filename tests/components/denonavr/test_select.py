@@ -13,6 +13,7 @@ from syrupy.assertion import SnapshotAssertion
 
 from homeassistant.components.denonavr.const import (
     CONF_UPDATE_AUDYSSEY,
+    CONF_ZONE2,
     PENDING_VALUE_TIMEOUT,
     SETTLED_REFRESH_DELAY,
 )
@@ -20,7 +21,7 @@ from homeassistant.components.denonavr.coordinator import (
     DenonAvrDataUpdateCoordinator,
     mark_unavailable,
 )
-from homeassistant.components.select import DOMAIN as SELECT_DOMAIN
+from homeassistant.components.select import ATTR_OPTIONS, DOMAIN as SELECT_DOMAIN
 from homeassistant.components.switch import DOMAIN as SWITCH_DOMAIN
 from homeassistant.const import (
     ATTR_ENTITY_ID,
@@ -29,6 +30,7 @@ from homeassistant.const import (
     SERVICE_TURN_OFF,
     STATE_OFF,
     STATE_UNAVAILABLE,
+    STATE_UNKNOWN,
     Platform,
 )
 from homeassistant.core import HomeAssistant
@@ -996,3 +998,167 @@ async def test_toggling_switch_updates_dependent_select(
     assert client.async_update_settings.await_count == settings_reads + 1
     assert hass.states.get(switch_entity_id).state == STATE_OFF
     assert hass.states.get(select_entity_id).state == STATE_UNAVAILABLE
+
+
+@pytest.mark.parametrize(
+    ("max_volume_known", "max_volume", "expected"),
+    [
+        pytest.param(True, 18.0, "off", id="off"),
+        pytest.param(True, -20.0, "minus_20db", id="lowest"),
+        pytest.param(True, 0.0, "0db", id="highest"),
+        pytest.param(True, -15.5, STATE_UNAVAILABLE, id="outside_the_options"),
+        pytest.param(False, 18.0, STATE_UNKNOWN, id="never_reported"),
+    ],
+)
+async def test_volume_limit_state(
+    hass: HomeAssistant,
+    client: MagicMock,
+    entity_registry: er.EntityRegistry,
+    max_volume_known: bool,
+    max_volume: float,
+    expected: str,
+) -> None:
+    """The limit is reported as its option key, off included.
+
+    A half step is not rounded into a neighbouring limit it does not match.
+    A limit the receiver never reported is not "off": no limit and an
+    unread one both read 18.0 in max_volume.
+    """
+    client.max_volume_known = max_volume_known
+    client.max_volume = max_volume
+    await setup_denonavr(hass)
+
+    entity_id = get_entity_id(entity_registry, SELECT_DOMAIN, "Main-volume_limit")
+    assert hass.states.get(entity_id).state == expected
+
+
+@pytest.mark.usefixtures("zone2_client")
+async def test_volume_limit_options_follow_the_zone(
+    hass: HomeAssistant, entity_registry: er.EntityRegistry
+) -> None:
+    """The main zone offers every whole decibel, zone 2 only steps of ten."""
+    await setup_denonavr(hass, options={CONF_ZONE2: True})
+
+    main = get_entity_id(entity_registry, SELECT_DOMAIN, "Main-volume_limit")
+    zone2 = get_entity_id(entity_registry, SELECT_DOMAIN, "Zone2-volume_limit")
+    assert hass.states.get(main).attributes[ATTR_OPTIONS] == [
+        "off",
+        *(f"minus_{-limit}db" for limit in range(-20, 0)),
+        "0db",
+    ]
+    assert hass.states.get(zone2).attributes[ATTR_OPTIONS] == [
+        "off",
+        "minus_20db",
+        "minus_10db",
+        "0db",
+    ]
+
+
+@pytest.mark.parametrize(
+    ("max_volume_known", "option", "expected"),
+    [
+        pytest.param(True, "off", None, id="off"),
+        pytest.param(True, "minus_20db", -20.0, id="lowest"),
+        pytest.param(True, "0db", 0.0, id="highest"),
+        pytest.param(False, "minus_20db", -20.0, id="never_reported"),
+    ],
+)
+async def test_set_volume_limit(
+    hass: HomeAssistant,
+    client: MagicMock,
+    entity_registry: er.EntityRegistry,
+    max_volume_known: bool,
+    option: str,
+    expected: float | None,
+) -> None:
+    """Selecting an option sets that limit, off clearing it entirely.
+
+    A limit the receiver never reported can still be set.
+    """
+    client.max_volume_known = max_volume_known
+    await setup_denonavr(hass)
+
+    await _select_option(
+        hass,
+        get_entity_id(entity_registry, SELECT_DOMAIN, "Main-volume_limit"),
+        option,
+    )
+
+    client.async_set_max_volume.assert_awaited_once_with(expected)
+
+
+async def test_zone2_volume_limit_writes_its_own_zone(
+    hass: HomeAssistant,
+    client: MagicMock,
+    zone2_client: MagicMock,
+    entity_registry: er.EntityRegistry,
+) -> None:
+    """Zone 2's select writes Zone 2's receiver object, not the main one."""
+    await setup_denonavr(hass, options={CONF_ZONE2: True})
+
+    await _select_option(
+        hass,
+        get_entity_id(entity_registry, SELECT_DOMAIN, "Zone2-volume_limit"),
+        "minus_10db",
+    )
+
+    zone2_client.async_set_max_volume.assert_awaited_once_with(-10.0)
+    client.async_set_max_volume.assert_not_awaited()
+
+
+@pytest.mark.parametrize(
+    "zone", [pytest.param(MAIN_ZONE, id="main"), pytest.param(ZONE2, id="zone2")]
+)
+@pytest.mark.parametrize(
+    ("main_power", "zone2_power"),
+    [
+        pytest.param(POWER_ON, POWER_OFF, id="only_main_on"),
+        pytest.param(POWER_OFF, POWER_ON, id="only_zone2_on"),
+        pytest.param(POWER_STANDBY, None, id="zone2_power_unknown"),
+    ],
+)
+async def test_volume_limit_written_while_any_zone_is_on(
+    hass: HomeAssistant,
+    client: MagicMock,
+    zone2_client: MagicMock,
+    entity_registry: er.EntityRegistry,
+    zone: str,
+    main_power: str,
+    zone2_power: str | None,
+) -> None:
+    """A zone's limit is written with that zone off while another may be on."""
+    client.power = main_power
+    zone2_client.power = zone2_power
+    await setup_denonavr(hass, options={CONF_ZONE2: True})
+
+    await _select_option(
+        hass,
+        get_entity_id(entity_registry, SELECT_DOMAIN, f"{zone}-volume_limit"),
+        "minus_10db",
+    )
+
+    client.zones[zone].async_set_max_volume.assert_awaited_once_with(-10.0)
+
+
+@pytest.mark.parametrize(
+    "zone", [pytest.param(MAIN_ZONE, id="main"), pytest.param(ZONE2, id="zone2")]
+)
+async def test_volume_limit_refused_while_every_zone_is_off(
+    hass: HomeAssistant,
+    client: MagicMock,
+    zone2_client: MagicMock,
+    entity_registry: er.EntityRegistry,
+    zone: str,
+) -> None:
+    """A zone's limit is refused once every zone is off."""
+    client.power = POWER_STANDBY
+    zone2_client.power = POWER_OFF
+    await setup_denonavr(hass, options={CONF_ZONE2: True})
+    entity_id = get_entity_id(entity_registry, SELECT_DOMAIN, f"{zone}-volume_limit")
+
+    with pytest.raises(ServiceValidationError) as err:
+        await _select_option(hass, entity_id, "minus_10db")
+
+    assert err.value.translation_key == "receiver_off"
+    client.zones[zone].async_set_max_volume.assert_not_awaited()
+    assert hass.states.get(entity_id).state == "off"

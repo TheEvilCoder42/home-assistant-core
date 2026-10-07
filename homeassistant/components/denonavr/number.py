@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from typing import Any, override
 
 from denonavr import DenonAVR
+from denonavr.const import VOLUME_TELNET_HALF_STEP
 
 from homeassistant.components.number import (
     NumberDeviceClass,
@@ -17,6 +18,7 @@ from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.util import slugify
 
 from . import DenonavrConfigEntry
+from .const import VOLUME_MIN, ZONE_NUMBERS
 from .entity import DenonAvrPendingValueEntity, tone_control_available
 
 # Denon receivers do not handle concurrent requests reliably. Only
@@ -40,6 +42,9 @@ class DenonAvrNumberEntityDescription(NumberEntityDescription):
     follows_other_coordinator: bool = False
     # Whether the receiver has this setting at all; checked once at setup.
     supported_fn: Callable[[DenonAVR], bool] = lambda receiver: True
+    # For an upper bound the receiver reports itself, instead of
+    # native_max_value.
+    max_value_fn: Callable[[DenonAVR], float] | None = None
 
 
 # denonavr reports bass and treble on the receiver's raw 0..12 scale,
@@ -184,6 +189,32 @@ def _channel_level_description(channel: str) -> DenonAvrNumberEntityDescription:
     )
 
 
+def _volume_description(zone: str) -> DenonAvrNumberEntityDescription:
+    """Describe the volume entity for one of the receiver's zones.
+
+    On the receiver's own scale, unlike media_player's 0..1 one, and capped
+    at the configured limit so the top of the range is always accepted.
+    """
+    zone_number = ZONE_NUMBERS.get(zone)
+    # Half steps on the main zone only: the secondary zones move in whole
+    # decibels on either transport.
+    step = 0.5 if VOLUME_TELNET_HALF_STEP[zone] else 1.0
+    return DenonAvrNumberEntityDescription(
+        key=f"{zone}-volume",
+        translation_key="volume" if zone_number is None else "zone_volume",
+        translation_placeholders=None if zone_number is None else {"zone": zone_number},
+        entity_registry_enabled_default=False,
+        # No device class: SOUND_PRESSURE is a measured level and this is a
+        # relative setting, the same reading lyngdorf's trims take.
+        native_unit_of_measurement=UnitOfSoundPressure.DECIBEL,
+        native_min_value=VOLUME_MIN,
+        native_step=step,
+        value_fn=lambda receiver: receiver.volume,
+        set_fn=lambda receiver, value: receiver.async_set_volume(value),
+        max_value_fn=lambda receiver: receiver.max_volume,
+    )
+
+
 async def async_setup_entry(
     hass: HomeAssistant,
     config_entry: DenonavrConfigEntry,
@@ -239,6 +270,10 @@ async def async_setup_entry(
     config_entry.async_on_unload(
         data.coordinator.async_add_internal_listener(add_reported_levels)
     )
+    async_add_entities(
+        DenonAvrNumber(config_entry, _volume_description(zone), zone_receiver)
+        for zone, zone_receiver in config_entry.runtime_data.receiver.zones.items()
+    )
 
 
 class DenonAvrNumber(DenonAvrPendingValueEntity[float], NumberEntity):
@@ -250,6 +285,7 @@ class DenonAvrNumber(DenonAvrPendingValueEntity[float], NumberEntity):
         self,
         config_entry: DenonavrConfigEntry,
         description: DenonAvrNumberEntityDescription,
+        receiver: DenonAVR | None = None,
     ) -> None:
         """Initialize the number entity."""
         data = config_entry.runtime_data
@@ -259,6 +295,7 @@ class DenonAvrNumber(DenonAvrPendingValueEntity[float], NumberEntity):
             else data.coordinator,
             config_entry,
             description.key,
+            receiver,
             follows_other_coordinator=description.follows_other_coordinator,
         )
         self.entity_description = description
@@ -293,6 +330,14 @@ class DenonAvrNumber(DenonAvrPendingValueEntity[float], NumberEntity):
     def native_value(self) -> float | None:
         """Return the current value."""
         return self._current_value
+
+    @property
+    @override
+    def native_max_value(self) -> float:
+        """Return the receiver-reported upper bound, if the description reads one."""
+        if (max_value_fn := self.entity_description.max_value_fn) is None:
+            return super().native_max_value
+        return max_value_fn(self._receiver)
 
     @override
     async def async_set_native_value(self, value: float) -> None:

@@ -6,7 +6,7 @@ a command that never applied from masking reality forever.
 """
 
 from collections.abc import Callable, Coroutine
-from typing import Any, override
+from typing import TYPE_CHECKING, Any, override
 
 from denonavr import DenonAVR
 from denonavr.const import POWER_ON
@@ -18,13 +18,16 @@ from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.event import async_call_later
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-from . import DenonavrConfigEntry
 from .const import CONF_SERIAL_NUMBER, DOMAIN, PENDING_VALUE_TIMEOUT
 from .coordinator import (
     COMMAND_UNAVAILABLE_ON,
     DenonAvrDataUpdateCoordinator,
     mark_unavailable,
 )
+
+if TYPE_CHECKING:
+    # __init__.py imports receiver_unique_id from here.
+    from . import DenonavrConfigEntry
 
 _DIRECT_SOUND_MODES = ("DIRECT", "PURE DIRECT")
 
@@ -99,15 +102,20 @@ class DenonAvrPendingValueEntity[_T](CoordinatorEntity[DenonAvrDataUpdateCoordin
         coordinator: DenonAvrDataUpdateCoordinator,
         config_entry: DenonavrConfigEntry,
         key: str,
+        receiver: DenonAVR | None = None,
         follows_other_coordinator: bool = False,
         any_zone_on: bool = False,
     ) -> None:
-        """Initialize the entity on the receiver's device."""
+        """Initialize the entity on the receiver's device.
+
+        A zone entity is given its own zone's receiver object, which holds
+        that zone's values; the coordinator only holds the main zone's.
+        """
         super().__init__(coordinator)
         self._any_zone_on = any_zone_on
         self._data = config_entry.runtime_data
         self._follows_other_coordinator = follows_other_coordinator
-        self._receiver = coordinator.receiver
+        self._receiver = receiver if receiver is not None else coordinator.receiver
         self._attr_unique_id = receiver_unique_id(config_entry, key)
         # Identifiers alone: the media_player entities describe the device.
         self._attr_device_info = DeviceInfo(
@@ -221,7 +229,9 @@ class DenonAvrPendingValueEntity[_T](CoordinatorEntity[DenonAvrDataUpdateCoordin
         async with self._action_lock:
             # Before the optimistic value, which would otherwise show and snap back.
             raise_if_powered_off(
-                self._receiver, self.entity_id, any_zone_on=self._any_zone_on
+                self._data.receiver if self._any_zone_on else self._receiver,
+                self.entity_id,
+                any_zone_on=self._any_zone_on,
             )
             try:
                 await send()
