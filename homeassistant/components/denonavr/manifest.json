@@ -8,7 +8,9 @@
   "iot_class": "local_push",
   "loggers": ["denonavr"],
   "quality_scale": "silver",
-  "requirements": ["denonavr==1.3.3"],
+  "requirements": [
+    "denonavr @ https://github.com/TheEvilCoder42/denonavr/archive/f7340844bec9d7c88fe8f1c275f1aba8a5b63edf.zip"
+  ],
   "ssdp": [
     {
       "deviceType": "urn:schemas-upnp-org:device:MediaRenderer:1",
@@ -58,5 +60,6 @@
       "deviceType": "urn:schemas-denon-com:device:AiosDevice:1",
       "manufacturer": "Marantz"
     }
-  ]
+  ],
+  "version": "0.1.9"
 }

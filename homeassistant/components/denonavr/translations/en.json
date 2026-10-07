@@ -1,0 +1,345 @@
+{
+    "config": {
+        "abort": {
+            "already_configured": "Device is already configured",
+            "cannot_connect": "Failed to connect, please try again, disconnecting mains power and Ethernet cables and reconnecting them may help",
+            "not_denonavr_manufacturer": "Not a Denon AVR network receiver, discovered manufacturer did not match",
+            "not_denonavr_missing": "Not a Denon AVR network receiver, discovery information not complete"
+        },
+        "error": {
+            "cannot_connect": "Failed to connect, please try again, disconnecting mains power and Ethernet cables and reconnecting them may help",
+            "discovery_error": "Failed to discover a Denon AVR network receiver"
+        },
+        "flow_title": "{name}",
+        "step": {
+            "confirm": {
+                "description": "Please confirm adding the receiver"
+            },
+            "select": {
+                "data": {
+                    "select_host": "Receiver IP address"
+                },
+                "data_description": {
+                    "select_host": "The receiver to set up, if more than one was discovered"
+                },
+                "description": "Run the setup again if you want to connect additional receivers",
+                "title": "Select the receiver that you wish to connect"
+            },
+            "user": {
+                "data": {
+                    "host": "IP address"
+                },
+                "data_description": {
+                    "host": "Leave blank to use auto-discovery"
+                },
+                "description": "By default, this integration uses a Telnet connection to your receiver to receive real-time updates. Only one Telnet connection to your receiver can be established at a time. The Telnet connection can be disabled after setting up the integration."
+            }
+        }
+    },
+    "entity": {
+        "number": {
+            "audio_delay": {
+                "name": "Audio delay"
+            },
+            "bass": {
+                "name": "Tone control bass"
+            },
+            "channel_level_back_dolby_left": {
+                "name": "Channel level back Dolby left"
+            },
+            "channel_level_back_dolby_right": {
+                "name": "Channel level back Dolby right"
+            },
+            "channel_level_center": {
+                "name": "Channel level center"
+            },
+            "channel_level_center_height": {
+                "name": "Channel level center height"
+            },
+            "channel_level_front_dolby_left": {
+                "name": "Channel level front Dolby left"
+            },
+            "channel_level_front_dolby_right": {
+                "name": "Channel level front Dolby right"
+            },
+            "channel_level_front_height_left": {
+                "name": "Channel level front height left"
+            },
+            "channel_level_front_height_right": {
+                "name": "Channel level front height right"
+            },
+            "channel_level_front_left": {
+                "name": "Channel level front left"
+            },
+            "channel_level_front_right": {
+                "name": "Channel level front right"
+            },
+            "channel_level_front_wide_left": {
+                "name": "Channel level front wide left"
+            },
+            "channel_level_front_wide_right": {
+                "name": "Channel level front wide right"
+            },
+            "channel_level_rear_height_left": {
+                "name": "Channel level rear height left"
+            },
+            "channel_level_rear_height_right": {
+                "name": "Channel level rear height right"
+            },
+            "channel_level_subwoofer": {
+                "name": "Channel level subwoofer"
+            },
+            "channel_level_subwoofer_2": {
+                "name": "Channel level subwoofer 2"
+            },
+            "channel_level_subwoofer_3": {
+                "name": "Channel level subwoofer 3"
+            },
+            "channel_level_subwoofer_4": {
+                "name": "Channel level subwoofer 4"
+            },
+            "channel_level_surround_back": {
+                "name": "Channel level surround back"
+            },
+            "channel_level_surround_back_left": {
+                "name": "Channel level surround back left"
+            },
+            "channel_level_surround_back_right": {
+                "name": "Channel level surround back right"
+            },
+            "channel_level_surround_dolby_left": {
+                "name": "Channel level surround Dolby left"
+            },
+            "channel_level_surround_dolby_right": {
+                "name": "Channel level surround Dolby right"
+            },
+            "channel_level_surround_height_left": {
+                "name": "Channel level surround height left"
+            },
+            "channel_level_surround_height_right": {
+                "name": "Channel level surround height right"
+            },
+            "channel_level_surround_left": {
+                "name": "Channel level surround left"
+            },
+            "channel_level_surround_right": {
+                "name": "Channel level surround right"
+            },
+            "channel_level_top_front_left": {
+                "name": "Channel level top front left"
+            },
+            "channel_level_top_front_right": {
+                "name": "Channel level top front right"
+            },
+            "channel_level_top_middle_left": {
+                "name": "Channel level top middle left"
+            },
+            "channel_level_top_middle_right": {
+                "name": "Channel level top middle right"
+            },
+            "channel_level_top_rear_left": {
+                "name": "Channel level top rear left"
+            },
+            "channel_level_top_rear_right": {
+                "name": "Channel level top rear right"
+            },
+            "channel_level_top_surround": {
+                "name": "Channel level top surround"
+            },
+            "lfe_level": {
+                "name": "LFE attenuation"
+            },
+            "subwoofer_level": {
+                "name": "Subwoofer {subwoofer} level adjust"
+            },
+            "treble": {
+                "name": "Tone control treble"
+            },
+            "volume": {
+                "name": "Volume"
+            },
+            "zone_volume": {
+                "name": "Zone {zone} volume"
+            }
+        },
+        "select": {
+            "auto_standby": {
+                "name": "Auto standby",
+                "state": {
+                    "15m": "15 minutes",
+                    "2h": "2 hours",
+                    "30m": "30 minutes",
+                    "4h": "4 hours",
+                    "60m": "60 minutes",
+                    "8h": "8 hours",
+                    "off": "Off"
+                }
+            },
+            "dimmer": {
+                "name": "Display dimmer",
+                "state": {
+                    "bright": "Bright",
+                    "dark": "Dark",
+                    "dim": "Dim",
+                    "off": "Off"
+                }
+            },
+            "dynamic_volume": {
+                "name": "Audyssey Dynamic Volume",
+                "state": {
+                    "heavy": "Heavy",
+                    "light": "Light",
+                    "medium": "Medium",
+                    "off": "Off"
+                }
+            },
+            "eco_mode": {
+                "name": "Eco mode",
+                "state": {
+                    "auto": "Auto",
+                    "off": "Off",
+                    "on": "On"
+                }
+            },
+            "multi_eq": {
+                "name": "Audyssey MultEQ",
+                "state": {
+                    "flat": "Flat",
+                    "l_r_bypass": "L/R bypass",
+                    "manual": "Manual",
+                    "off": "Off",
+                    "reference": "Reference"
+                }
+            },
+            "reference_level_offset": {
+                "name": "Audyssey reference level offset",
+                "state": {
+                    "0db": "0 dB",
+                    "10db": "+10 dB",
+                    "15db": "+15 dB",
+                    "5db": "+5 dB"
+                }
+            },
+            "speaker_preset": {
+                "name": "Speaker preset"
+            },
+            "volume_limit": {
+                "name": "Volume limit",
+                "state": {
+                    "0db": "0 dB",
+                    "minus_10db": "-10 dB",
+                    "minus_11db": "-11 dB",
+                    "minus_12db": "-12 dB",
+                    "minus_13db": "-13 dB",
+                    "minus_14db": "-14 dB",
+                    "minus_15db": "-15 dB",
+                    "minus_16db": "-16 dB",
+                    "minus_17db": "-17 dB",
+                    "minus_18db": "-18 dB",
+                    "minus_19db": "-19 dB",
+                    "minus_1db": "-1 dB",
+                    "minus_20db": "-20 dB",
+                    "minus_2db": "-2 dB",
+                    "minus_3db": "-3 dB",
+                    "minus_4db": "-4 dB",
+                    "minus_5db": "-5 dB",
+                    "minus_6db": "-6 dB",
+                    "minus_7db": "-7 dB",
+                    "minus_8db": "-8 dB",
+                    "minus_9db": "-9 dB",
+                    "off": "Off"
+                }
+            },
+            "zone_volume_limit": {
+                "name": "Zone {zone} volume limit",
+                "state": {
+                    "0db": "0 dB",
+                    "minus_10db": "-10 dB",
+                    "minus_20db": "-20 dB",
+                    "off": "Off"
+                }
+            }
+        },
+        "switch": {
+            "auto_lip_sync": {
+                "name": "Auto lip sync"
+            },
+            "dynamic_eq": {
+                "name": "Audyssey Dynamic EQ"
+            },
+            "subwoofer": {
+                "name": "Subwoofer output"
+            },
+            "tone_control": {
+                "name": "Tone control"
+            }
+        }
+    },
+    "exceptions": {
+        "command_failed": {
+            "message": "Command failed on {host}: {error}"
+        },
+        "communication_error": {
+            "message": "Error communicating with {host}: {error}"
+        },
+        "not_identified": {
+            "message": "Receiver at {host} did not identify itself: manufacturer {manufacturer}, name {name}, model {model}, type {type}"
+        },
+        "receiver_off": {
+            "message": "Cannot change {entity_id} while the zone it applies to is off"
+        },
+        "set_failed": {
+            "message": "Setting {entity_id} to {value} failed on {host}: {error}"
+        },
+        "update_not_complete": {
+            "message": "Update of {host} not complete: {error}"
+        }
+    },
+    "options": {
+        "step": {
+            "init": {
+                "data": {
+                    "show_all_sources": "Show all sources",
+                    "update_audyssey": "Update audio settings periodically",
+                    "use_telnet": "Use Telnet connection",
+                    "zone2": "Set up Zone 2",
+                    "zone3": "Set up Zone 3"
+                },
+                "data_description": {
+                    "show_all_sources": "Displays all sources, even ones the receiver marks as deleted",
+                    "update_audyssey": "Updates the audio settings on a schedule while Telnet is not connected, which can take up to 10 seconds on some receivers. Without it, they only update on demand",
+                    "use_telnet": "Enables real-time updates. Only one Telnet connection to the receiver is allowed at a time",
+                    "zone2": "Adds Zone 2's media player and its settings, if supported by the receiver",
+                    "zone3": "Adds Zone 3's media player and its settings, if supported by the receiver"
+                },
+                "description": "Specify optional settings"
+            }
+        }
+    },
+    "services": {
+        "get_command": {
+            "description": "Sends a generic HTTP get command.",
+            "fields": {
+                "command": {
+                    "description": "Endpoint of the command, including associated parameters.",
+                    "name": "Command"
+                }
+            },
+            "name": "Get command"
+        },
+        "set_dynamic_eq": {
+            "description": "Enables or disables DynamicEQ.",
+            "fields": {
+                "dynamic_eq": {
+                    "description": "Whether DynamicEQ should be enabled or disabled.",
+                    "name": "Dynamic equalizer"
+                }
+            },
+            "name": "Set dynamic equalizer"
+        },
+        "update_audyssey": {
+            "description": "Updates the audio settings.",
+            "name": "Update audio settings"
+        }
+    }
+}
