@@ -7,6 +7,7 @@
       "not_denonavr_missing": "Not a Denon AVR network receiver, discovery information not complete"
     },
     "error": {
+      "cannot_connect": "Failed to connect, please try again, disconnecting mains power and Ethernet cables and reconnecting them may help",
       "discovery_error": "Failed to discover a Denon AVR network receiver"
     },
     "flow_title": "{name}",

@@ -5,7 +5,7 @@ from typing import Any, override
 from urllib.parse import urlparse
 
 import denonavr
-from denonavr.exceptions import AvrNetworkError, AvrTimoutError
+from denonavr.exceptions import AvrRequestError
 import probatio
 
 from homeassistant.config_entries import (
@@ -130,21 +130,23 @@ class DenonAvrFlowHandler(ConfigFlow, domain=DOMAIN):
         errors = {}
         if user_input is not None:
             # check if IP address is set manually
-            if host := user_input.get(CONF_HOST):
+            if not (host := user_input.get(CONF_HOST)):
+                # discovery using denonavr library
+                self.d_receivers = await denonavr.async_discover()
+                # More than one receiver could be discovered by that method
+                if len(self.d_receivers) > 1:
+                    # show selection form
+                    return await self.async_step_select()
+                if self.d_receivers:
+                    host = self.d_receivers[0]["host"]
+
+            if not host:
+                errors["base"] = "discovery_error"
+            else:
                 self.host = host
-                return await self.async_step_connect()
-
-            # discovery using denonavr library
-            self.d_receivers = await denonavr.async_discover()
-            # More than one receiver could be discovered by that method
-            if len(self.d_receivers) == 1:
-                self.host = self.d_receivers[0]["host"]
-                return await self.async_step_connect()
-            if len(self.d_receivers) > 1:
-                # show selection form
-                return await self.async_step_select()
-
-            errors["base"] = "discovery_error"
+                if (receiver := await self._async_connect_receiver()) is not None:
+                    return await self._async_create_receiver_entry(receiver)
+                errors["base"] = "cannot_connect"
 
         return self.async_show_form(
             step_id="user", data_schema=CONFIG_SCHEMA, errors=errors
@@ -157,7 +159,9 @@ class DenonAvrFlowHandler(ConfigFlow, domain=DOMAIN):
         errors: dict[str, str] = {}
         if user_input is not None:
             self.host = user_input["select_host"]
-            return await self.async_step_connect()
+            if (receiver := await self._async_connect_receiver()) is not None:
+                return await self._async_create_receiver_entry(receiver)
+            errors["base"] = "cannot_connect"
 
         select_scheme = probatio.Schema(
             {
@@ -175,11 +179,14 @@ class DenonAvrFlowHandler(ConfigFlow, domain=DOMAIN):
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
         """Allow the user to confirm adding the device."""
+        errors: dict[str, str] = {}
         if user_input is not None:
-            return await self.async_step_connect()
+            if (receiver := await self._async_connect_receiver()) is not None:
+                return await self._async_create_receiver_entry(receiver)
+            errors["base"] = "cannot_connect"
 
         self._set_confirm_only()
-        return self.async_show_form(step_id="confirm")
+        return self.async_show_form(step_id="confirm", errors=errors)
 
     async def _async_connect_receiver(self) -> denonavr.DenonAVR | None:
         """Connect to the receiver, return None if that fails."""
@@ -196,19 +203,16 @@ class DenonAvrFlowHandler(ConfigFlow, domain=DOMAIN):
 
         try:
             success = await connect_denonavr.async_connect_receiver()
-        except AvrNetworkError, AvrTimoutError:
+        except AvrRequestError:
             return None
         if not success:
             return None
         return connect_denonavr.receiver
 
-    async def async_step_connect(
-        self, user_input: dict[str, Any] | None = None
+    async def _async_create_receiver_entry(
+        self, receiver: denonavr.DenonAVR
     ) -> ConfigFlowResult:
-        """Connect to the receiver."""
-        if (receiver := await self._async_connect_receiver()) is None:
-            return self.async_abort(reason="cannot_connect")
-
+        """Create the entry for a connected receiver."""
         if not self.serial_number:
             self.serial_number = receiver.serial_number
         if not self.model_name:

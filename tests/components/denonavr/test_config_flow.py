@@ -1,8 +1,14 @@
 """Test the DenonAVR config flow."""
 
+from typing import Any
 from unittest.mock import patch
 
-from denonavr.exceptions import AvrNetworkError
+from denonavr.exceptions import (
+    AvrInvalidResponseError,
+    AvrNetworkError,
+    AvrRequestError,
+    AvrTimoutError,
+)
 import pytest
 
 from homeassistant import config_entries
@@ -16,7 +22,6 @@ from homeassistant.components.denonavr.config_flow import (
     CONF_ZONE2,
     CONF_ZONE3,
     DOMAIN,
-    AvrTimoutError,
 )
 from homeassistant.const import CONF_HOST, CONF_MODEL
 from homeassistant.core import HomeAssistant
@@ -200,10 +205,7 @@ async def test_config_flow_manual_discover_2_success(hass: HomeAssistant) -> Non
 
 
 async def test_config_flow_manual_discover_error(hass: HomeAssistant) -> None:
-    """Failed flow manually initialized by the user.
-
-    Without the host specified and no receiver discovered.
-    """
+    """No receiver discovered shows the error, and entering a host succeeds."""
     result = await hass.config_entries.flow.async_init(
         DOMAIN, context={"source": config_entries.SOURCE_USER}
     )
@@ -224,6 +226,14 @@ async def test_config_flow_manual_discover_error(hass: HomeAssistant) -> None:
     assert result["type"] is FlowResultType.FORM
     assert result["step_id"] == "user"
     assert result["errors"] == {"base": "discovery_error"}
+
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"],
+        {CONF_HOST: TEST_HOST},
+    )
+
+    assert result["type"] is FlowResultType.CREATE_ENTRY
+    assert result["data"][CONF_HOST] == TEST_HOST
 
 
 async def test_config_flow_manual_host_no_serial(hass: HomeAssistant) -> None:
@@ -260,62 +270,126 @@ async def test_config_flow_manual_host_no_serial(hass: HomeAssistant) -> None:
     }
 
 
-async def test_config_flow_manual_host_connection_error(hass: HomeAssistant) -> None:
-    """Failed flow manually initialized by the user.
+CANNOT_CONNECT = pytest.mark.parametrize(
+    ("attribute", "patch_kwargs"),
+    [
+        pytest.param(
+            "async_setup",
+            {"side_effect": AvrTimoutError("Timeout", "async_setup")},
+            id="timeout",
+        ),
+        pytest.param(
+            "async_setup",
+            {"side_effect": AvrInvalidResponseError("Invalid", "async_setup")},
+            id="invalid_response",
+        ),
+        # A receiver in standby answers without its device info.
+        pytest.param("receiver_type", {"new": None}, id="no_device_info"),
+    ],
+)
 
-    Host specified and a connection error.
-    """
+
+@CANNOT_CONNECT
+async def test_config_flow_manual_host_cannot_connect(
+    hass: HomeAssistant, attribute: str, patch_kwargs: dict[str, Any]
+) -> None:
+    """A receiver that cannot be reached shows the error, and a retry succeeds."""
     result = await hass.config_entries.flow.async_init(
         DOMAIN, context={"source": config_entries.SOURCE_USER}
     )
-
-    assert result["type"] is FlowResultType.FORM
-    assert result["step_id"] == "user"
-    assert result["errors"] == {}
-
-    with (
-        patch(
-            "homeassistant.components.denonavr.receiver.DenonAVR.async_setup",
-            side_effect=AvrTimoutError("Timeout", "async_setup"),
-        ),
-        patch(
-            "homeassistant.components.denonavr.receiver.DenonAVR.receiver_type",
-            None,
-        ),
-    ):
-        result = await hass.config_entries.flow.async_configure(
-            result["flow_id"],
-            {CONF_HOST: TEST_HOST},
-        )
-
-    assert result["type"] is FlowResultType.ABORT
-    assert result["reason"] == "cannot_connect"
-
-
-async def test_config_flow_manual_host_no_device_info(hass: HomeAssistant) -> None:
-    """Failed flow manually initialized by the user.
-
-    Host specified and no device info (due to receiver power off).
-    """
-    result = await hass.config_entries.flow.async_init(
-        DOMAIN, context={"source": config_entries.SOURCE_USER}
-    )
-
-    assert result["type"] is FlowResultType.FORM
-    assert result["step_id"] == "user"
-    assert result["errors"] == {}
 
     with patch(
-        "homeassistant.components.denonavr.receiver.DenonAVR.receiver_type",
-        None,
+        f"homeassistant.components.denonavr.receiver.DenonAVR.{attribute}",
+        **patch_kwargs,
     ):
         result = await hass.config_entries.flow.async_configure(
             result["flow_id"],
             {CONF_HOST: TEST_HOST},
         )
 
-    assert result["type"] is FlowResultType.ABORT
-    assert result["reason"] == "cannot_connect"
+    assert result["type"] is FlowResultType.FORM
+    assert result["step_id"] == "user"
+    assert result["errors"] == {"base": "cannot_connect"}
+
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"],
+        {CONF_HOST: TEST_HOST},
+    )
+
+    assert result["type"] is FlowResultType.CREATE_ENTRY
+    assert result["data"][CONF_HOST] == TEST_HOST
+
+
+@CANNOT_CONNECT
+async def test_config_flow_select_cannot_connect(
+    hass: HomeAssistant, attribute: str, patch_kwargs: dict[str, Any]
+) -> None:
+    """A selected receiver that cannot be reached can be selected again."""
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN, context={"source": config_entries.SOURCE_USER}
+    )
+    with patch(
+        "homeassistant.components.denonavr.config_flow.denonavr.async_discover",
+        return_value=TEST_DISCOVER_2_RECEIVER,
+    ):
+        result = await hass.config_entries.flow.async_configure(result["flow_id"], {})
+
+    with patch(
+        f"homeassistant.components.denonavr.receiver.DenonAVR.{attribute}",
+        **patch_kwargs,
+    ):
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"],
+            {"select_host": TEST_HOST2},
+        )
+
+    assert result["type"] is FlowResultType.FORM
+    assert result["step_id"] == "select"
+    assert result["errors"] == {"base": "cannot_connect"}
+
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"],
+        {"select_host": TEST_HOST2},
+    )
+
+    assert result["type"] is FlowResultType.CREATE_ENTRY
+    assert result["data"][CONF_HOST] == TEST_HOST2
+
+
+@CANNOT_CONNECT
+async def test_config_flow_ssdp_cannot_connect(
+    hass: HomeAssistant, attribute: str, patch_kwargs: dict[str, Any]
+) -> None:
+    """A discovered receiver that cannot be reached can be confirmed again."""
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN,
+        context={"source": config_entries.SOURCE_SSDP},
+        data=SsdpServiceInfo(
+            ssdp_usn="mock_usn",
+            ssdp_st="mock_st",
+            ssdp_location=TEST_SSDP_LOCATION,
+            upnp={
+                ATTR_UPNP_MANUFACTURER: TEST_MANUFACTURER,
+                ATTR_UPNP_MODEL_NAME: TEST_MODEL,
+                ATTR_UPNP_SERIAL: TEST_SERIALNUMBER,
+            },
+        ),
+    )
+
+    with patch(
+        f"homeassistant.components.denonavr.receiver.DenonAVR.{attribute}",
+        **patch_kwargs,
+    ):
+        result = await hass.config_entries.flow.async_configure(result["flow_id"], {})
+
+    assert result["type"] is FlowResultType.FORM
+    assert result["step_id"] == "confirm"
+    assert result["errors"] == {"base": "cannot_connect"}
+
+    result = await hass.config_entries.flow.async_configure(result["flow_id"], {})
+
+    assert result["type"] is FlowResultType.CREATE_ENTRY
+    assert result["data"][CONF_HOST] == TEST_HOST
 
 
 async def test_config_flow_manual_host_already_configured(
@@ -374,6 +448,35 @@ async def test_config_flow_ssdp(hass: HomeAssistant) -> None:
     assert result["options"] == {CONF_USE_TELNET: True}
 
 
+async def test_config_flow_ssdp_already_configured(hass: HomeAssistant) -> None:
+    """A rediscovered receiver aborts and updates the host of its entry."""
+    config_entry = MockConfigEntry(
+        domain=DOMAIN,
+        unique_id=TEST_UNIQUE_ID,
+        data={CONF_HOST: TEST_HOST2},
+    )
+    config_entry.add_to_hass(hass)
+
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN,
+        context={"source": config_entries.SOURCE_SSDP},
+        data=SsdpServiceInfo(
+            ssdp_usn="mock_usn",
+            ssdp_st="mock_st",
+            ssdp_location=TEST_SSDP_LOCATION,
+            upnp={
+                ATTR_UPNP_MANUFACTURER: TEST_MANUFACTURER,
+                ATTR_UPNP_MODEL_NAME: TEST_MODEL,
+                ATTR_UPNP_SERIAL: TEST_SERIALNUMBER,
+            },
+        ),
+    )
+
+    assert result["type"] is FlowResultType.ABORT
+    assert result["reason"] == "already_configured"
+    assert config_entry.data[CONF_HOST] == TEST_HOST
+
+
 async def test_config_flow_ssdp_not_denon(hass: HomeAssistant) -> None:
     """Failed flow initialized by ssdp discovery.
 
@@ -420,7 +523,18 @@ async def test_config_flow_ssdp_missing_info(hass: HomeAssistant) -> None:
     assert result["reason"] == "not_denonavr_missing"
 
 
-async def test_config_flow_ssdp_no_receiver_api(hass: HomeAssistant) -> None:
+@pytest.mark.parametrize(
+    "error",
+    [
+        pytest.param(AvrNetworkError("NetworkError", "async_setup"), id="network"),
+        pytest.param(
+            AvrInvalidResponseError("Invalid", "async_setup"), id="invalid_response"
+        ),
+    ],
+)
+async def test_config_flow_ssdp_no_receiver_api(
+    hass: HomeAssistant, error: AvrRequestError
+) -> None:
     """Failed flow initialized by ssdp discovery.
 
     HEOS-only devices (like a Denon Home speaker) are discovered, but don't
@@ -428,7 +542,7 @@ async def test_config_flow_ssdp_no_receiver_api(hass: HomeAssistant) -> None:
     """
     with patch(
         "homeassistant.components.denonavr.receiver.DenonAVR.async_setup",
-        side_effect=AvrNetworkError("NetworkError", "async_setup"),
+        side_effect=error,
     ):
         result = await hass.config_entries.flow.async_init(
             DOMAIN,
