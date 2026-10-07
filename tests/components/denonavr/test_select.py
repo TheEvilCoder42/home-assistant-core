@@ -14,6 +14,7 @@ from syrupy.assertion import SnapshotAssertion
 from homeassistant.components.denonavr.const import (
     CONF_UPDATE_AUDYSSEY,
     PENDING_VALUE_TIMEOUT,
+    SETTLED_REFRESH_DELAY,
 )
 from homeassistant.components.denonavr.coordinator import (
     DenonAvrDataUpdateCoordinator,
@@ -489,6 +490,73 @@ async def test_select_option_confirms_with_one_read(
     await wait_for_debounced_refresh(hass)
 
     assert getattr(client, update).await_count == reads_before + 1
+
+
+@pytest.mark.parametrize(
+    (
+        "domain",
+        "service",
+        "data",
+        "key",
+        "status_reads",
+        "settled_status_reads",
+        "settings_reads",
+    ),
+    [
+        pytest.param(
+            SWITCH_DOMAIN, SERVICE_TURN_OFF, {}, "dynamic_eq", 0, 1, 1, id="setting"
+        ),
+        pytest.param(
+            SELECT_DOMAIN,
+            SERVICE_SELECT_OPTION,
+            {ATTR_OPTION: "dark"},
+            "dimmer",
+            1,
+            1,
+            0,
+            id="status",
+        ),
+    ],
+)
+async def test_settings_command_also_refreshes_status_once_settled(
+    hass: HomeAssistant,
+    client: MagicMock,
+    entity_registry: er.EntityRegistry,
+    freezer: FrozenDateTimeFactory,
+    domain: str,
+    service: str,
+    data: dict[str, str],
+    key: str,
+    status_reads: int,
+    settled_status_reads: int,
+    settings_reads: int,
+) -> None:
+    """A settings command re-reads the status too, but not the reverse.
+
+    A setting can move values the status coordinator reads, such as the
+    subwoofer levels, which read straight after the command are still
+    missing. The settings fetch is the slow one, so a status command does
+    not pay for it.
+    """
+    await setup_denonavr(hass)
+    status_calls = client.async_update.await_count
+    settings_calls = client.async_update_settings.await_count
+
+    await hass.services.async_call(
+        domain,
+        service,
+        {ATTR_ENTITY_ID: get_entity_id(entity_registry, domain, key), **data},
+        blocking=True,
+    )
+    await wait_for_debounced_refresh(hass)
+    await advance_time(hass, freezer, SETTLED_REFRESH_DELAY - 1)
+    assert client.async_update.await_count == status_calls + status_reads
+
+    # The settled delay, then the action debounce behind it.
+    await advance_time(hass, freezer, 1)
+    await advance_time(hass, freezer, 1)
+    assert client.async_update.await_count == status_calls + settled_status_reads
+    assert client.async_update_settings.await_count == settings_calls + settings_reads
 
 
 async def test_coordinators_serialize_command_and_refresh(

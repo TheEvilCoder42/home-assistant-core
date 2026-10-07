@@ -7,7 +7,7 @@ from functools import partial
 import logging
 
 from denonavr import DenonAVR
-from denonavr.const import ALL_TELNET_EVENTS
+from denonavr.const import ALL_TELNET_EVENTS, MAIN_ZONE
 from denonavr.exceptions import DenonAvrError
 
 from homeassistant.config_entries import ConfigEntry
@@ -53,6 +53,12 @@ PLATFORMS = [
 ]
 
 _LOGGER = logging.getLogger(__name__)
+
+# Main-zone pushes, by event and parameter prefix, that mark a change in
+# whether the subwoofer level can be set: the signal code, the input channel
+# map, Subwoofer output, and the sound mode, since Subwoofer output applies
+# only in Stereo and switching into or out of it pushes no PSSWR.
+SUBWOOFER_GATE_PUSHES = {"SS": "INFAISSIG", "OP": "INFINS", "PS": "SWR", "MS": ""}
 
 
 @dataclass
@@ -136,6 +142,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: DenonavrConfigEntry) -> 
         name="status",
         update_interval=update_interval,
         refresh_fn=async_refresh_status,
+        # Telnet never reports whether the subwoofer level can be set.
+        force_settled_refresh=True,
     )
     # Reads only without Telnet: with it, receiver.py already read status
     # before connecting, so this is skipped. Either read failing is not ready.
@@ -285,6 +293,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: DenonavrConfigEntry) -> 
             partial(receiver.unregister_callback, telnet_event, _telnet_notify_settings)
         )
 
+    # The last parameter of each subwoofer gate push. Starts empty, so the
+    # first of each counts as a change and one read follows setup.
+    gate_pushes: dict[str, str] = {}
+
     @callback
     def _telnet_notify_status(zone: str, event: str, parameter: str) -> None:
         """Feed Telnet activity into the status coordinator.
@@ -294,6 +306,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: DenonavrConfigEntry) -> 
 
         A push is the receiver answering, so it clears a failure, poll or
         not: healthy Telnet keeps the status current.
+
+        Repeated subwoofer gate pushes are ignored: the signal code repeats
+        and the sound mode comes in bursts.
         """
         # A now-playing or HD Radio change arrives as one event per field:
         # notifying on each would publish a new title with the old artist.
@@ -302,6 +317,14 @@ async def async_setup_entry(hass: HomeAssistant, entry: DenonavrConfigEntry) -> 
         ):
             return
         mark_available(coordinator)
+        if (
+            zone == MAIN_ZONE
+            and (prefix := SUBWOOFER_GATE_PUSHES.get(event)) is not None
+            and parameter.startswith(prefix)
+            and gate_pushes.get(event) != parameter
+        ):
+            gate_pushes[event] = parameter
+            coordinator.async_request_settled_refresh()
 
     receiver.register_callback(ALL_TELNET_EVENTS, _telnet_notify_status)
     entry.async_on_unload(

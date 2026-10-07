@@ -44,8 +44,113 @@
       "bass": {
         "name": "Tone control bass"
       },
+      "channel_level_back_dolby_left": {
+        "name": "Channel level back Dolby left"
+      },
+      "channel_level_back_dolby_right": {
+        "name": "Channel level back Dolby right"
+      },
+      "channel_level_center": {
+        "name": "Channel level center"
+      },
+      "channel_level_center_height": {
+        "name": "Channel level center height"
+      },
+      "channel_level_front_dolby_left": {
+        "name": "Channel level front Dolby left"
+      },
+      "channel_level_front_dolby_right": {
+        "name": "Channel level front Dolby right"
+      },
+      "channel_level_front_height_left": {
+        "name": "Channel level front height left"
+      },
+      "channel_level_front_height_right": {
+        "name": "Channel level front height right"
+      },
+      "channel_level_front_left": {
+        "name": "Channel level front left"
+      },
+      "channel_level_front_right": {
+        "name": "Channel level front right"
+      },
+      "channel_level_front_wide_left": {
+        "name": "Channel level front wide left"
+      },
+      "channel_level_front_wide_right": {
+        "name": "Channel level front wide right"
+      },
+      "channel_level_rear_height_left": {
+        "name": "Channel level rear height left"
+      },
+      "channel_level_rear_height_right": {
+        "name": "Channel level rear height right"
+      },
+      "channel_level_subwoofer": {
+        "name": "Channel level subwoofer"
+      },
+      "channel_level_subwoofer_2": {
+        "name": "Channel level subwoofer 2"
+      },
+      "channel_level_subwoofer_3": {
+        "name": "Channel level subwoofer 3"
+      },
+      "channel_level_subwoofer_4": {
+        "name": "Channel level subwoofer 4"
+      },
+      "channel_level_surround_back": {
+        "name": "Channel level surround back"
+      },
+      "channel_level_surround_back_left": {
+        "name": "Channel level surround back left"
+      },
+      "channel_level_surround_back_right": {
+        "name": "Channel level surround back right"
+      },
+      "channel_level_surround_dolby_left": {
+        "name": "Channel level surround Dolby left"
+      },
+      "channel_level_surround_dolby_right": {
+        "name": "Channel level surround Dolby right"
+      },
+      "channel_level_surround_height_left": {
+        "name": "Channel level surround height left"
+      },
+      "channel_level_surround_height_right": {
+        "name": "Channel level surround height right"
+      },
+      "channel_level_surround_left": {
+        "name": "Channel level surround left"
+      },
+      "channel_level_surround_right": {
+        "name": "Channel level surround right"
+      },
+      "channel_level_top_front_left": {
+        "name": "Channel level top front left"
+      },
+      "channel_level_top_front_right": {
+        "name": "Channel level top front right"
+      },
+      "channel_level_top_middle_left": {
+        "name": "Channel level top middle left"
+      },
+      "channel_level_top_middle_right": {
+        "name": "Channel level top middle right"
+      },
+      "channel_level_top_rear_left": {
+        "name": "Channel level top rear left"
+      },
+      "channel_level_top_rear_right": {
+        "name": "Channel level top rear right"
+      },
+      "channel_level_top_surround": {
+        "name": "Channel level top surround"
+      },
       "lfe_level": {
         "name": "LFE attenuation"
+      },
+      "subwoofer_level": {
+        "name": "Subwoofer {subwoofer} level adjust"
       },
       "treble": {
         "name": "Tone control treble"
