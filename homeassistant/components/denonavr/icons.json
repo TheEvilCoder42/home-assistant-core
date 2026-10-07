@@ -1,8 +1,14 @@
 {
   "entity": {
     "number": {
+      "bass": {
+        "default": "mdi:music-clef-bass"
+      },
       "lfe_level": {
         "default": "mdi:sine-wave"
+      },
+      "treble": {
+        "default": "mdi:music-clef-treble"
       }
     },
     "select": {
@@ -37,6 +43,9 @@
       },
       "subwoofer": {
         "default": "mdi:speaker"
+      },
+      "tone_control": {
+        "default": "mdi:tune-vertical-variant"
       }
     }
   },
