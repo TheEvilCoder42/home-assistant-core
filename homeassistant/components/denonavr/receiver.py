@@ -2,6 +2,7 @@
 
 from collections.abc import Callable
 import logging
+import time
 
 from denonavr import DenonAVR
 from denonavr.exceptions import DenonAvrError
@@ -70,12 +71,15 @@ class ConnectDenonAVR:
 
         # Do an initial update if telnet is used.
         if self._use_telnet:
+            # One cache id for the whole loop: the AppCommand.xml body
+            # carries no zone, so the zones share the one request.
+            cache_id = time.monotonic()
             for zone in self._receiver.zones.values():
                 # Classified the same way the coordinator's own poll does it,
                 # so a receiver that answers badly rather than not at all
                 # doesn't fail setup outright when it wouldn't fail a poll.
                 try:
-                    await zone.async_update()
+                    await zone.async_update(cache_id=cache_id)
                 except UNAVAILABLE_ON:
                     raise
                 except DenonAvrError as err:
