@@ -85,6 +85,12 @@ def client_fixture() -> Generator[MagicMock]:
         # The raw 0..12 scale denonavr reports, +4dB and -4dB.
         client.bass = 10
         client.treble = 2
+        # An idle receiver reports no level of either kind, so the tests that
+        # want the dynamically added entities set these themselves. An
+        # auto-generated MagicMock would be iterated by the platform.
+        client.subwoofer_levels = None
+        client.subwoofer_level_status = True
+        client.channel_volumes = None
         yield client
 
 

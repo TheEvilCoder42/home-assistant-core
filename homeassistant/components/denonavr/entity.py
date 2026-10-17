@@ -248,3 +248,8 @@ class DenonAvrPendingValueEntity[_T](CoordinatorEntity[DenonAvrDataUpdateCoordin
         # notifies every entity listening to it, including one on the other
         # coordinator whose availability follows this setting.
         await self.coordinator.async_request_refresh()
+        if self.coordinator is self._data.settings_coordinator:
+            # A setting can move status values too, such as the subwoofer
+            # levels, and read straight away they are still missing. Not the
+            # reverse: the settings fetch is the slow one.
+            self._data.coordinator.async_request_settled_refresh()
