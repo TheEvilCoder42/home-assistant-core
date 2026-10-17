@@ -80,6 +80,11 @@ def client_fixture() -> Generator[MagicMock]:
         client.subwoofer_adjustable = True
         client.speaker_preset = 1
         client.speaker_preset_list = [1, 2]
+        client.support_tone_control = True
+        client.tone_control_adjust = True
+        # The raw 0..12 scale denonavr reports, +4dB and -4dB.
+        client.bass = 10
+        client.treble = 2
         yield client
 
 
