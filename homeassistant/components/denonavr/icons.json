@@ -114,6 +114,12 @@
       },
       "treble": {
         "default": "mdi:music-clef-treble"
+      },
+      "volume": {
+        "default": "mdi:volume-medium"
+      },
+      "zone_volume": {
+        "default": "mdi:volume-medium"
       }
     },
     "select": {
@@ -137,6 +143,12 @@
       },
       "speaker_preset": {
         "default": "mdi:speaker-multiple"
+      },
+      "volume_limit": {
+        "default": "mdi:volume-high"
+      },
+      "zone_volume_limit": {
+        "default": "mdi:volume-high"
       }
     },
     "switch": {
