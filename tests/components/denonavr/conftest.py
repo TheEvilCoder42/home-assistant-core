@@ -13,6 +13,11 @@ TEST_RECEIVER_TYPE = "avr-x"
 TEST_ZONE = "Main"
 
 
+@pytest.fixture(autouse=True)
+def denonavr_mock_async_zeroconf(mock_async_zeroconf: MagicMock) -> None:
+    """Auto mock zeroconf."""
+
+
 @pytest.fixture(name="client")
 def client_fixture() -> Generator[MagicMock]:
     """Patch of client library for tests."""

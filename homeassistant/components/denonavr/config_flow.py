@@ -8,6 +8,7 @@ import denonavr
 from denonavr.exceptions import AvrNetworkError, AvrTimoutError
 import probatio
 
+from homeassistant.components import zeroconf
 from homeassistant.config_entries import (
     ConfigFlow,
     ConfigFlowResult,
@@ -135,7 +136,10 @@ class DenonAvrFlowHandler(ConfigFlow, domain=DOMAIN):
                 return await self.async_step_connect()
 
             # discovery using denonavr library
-            self.d_receivers = await denonavr.async_discover()
+            self.d_receivers = await denonavr.async_discover(
+                async_zeroconf=await zeroconf.async_get_async_instance(self.hass),
+                async_client=get_async_client(self.hass),
+            )
             # More than one receiver could be discovered by that method
             if len(self.d_receivers) == 1:
                 self.host = self.d_receivers[0]["host"]

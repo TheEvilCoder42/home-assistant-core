@@ -8,6 +8,7 @@ import pytest
 from pytest_homeassistant.common import MockConfigEntry
 
 from homeassistant import config_entries
+from homeassistant.components import zeroconf
 from homeassistant.components.denonavr.config_flow import (
     CONF_MANUFACTURER,
     CONF_SERIAL_NUMBER,
@@ -23,6 +24,7 @@ from homeassistant.components.denonavr.config_flow import (
 from homeassistant.const import CONF_HOST, CONF_MODEL
 from homeassistant.core import HomeAssistant
 from homeassistant.data_entry_flow import FlowResultType
+from homeassistant.helpers.httpx_client import get_async_client
 from homeassistant.helpers.service_info.ssdp import (
     ATTR_UPNP_MANUFACTURER,
     ATTR_UPNP_MODEL_NAME,
@@ -136,11 +138,18 @@ async def test_config_flow_manual_discover_1_success(hass: HomeAssistant) -> Non
     with patch(
         "homeassistant.components.denonavr.config_flow.denonavr.async_discover",
         return_value=TEST_DISCOVER_1_RECEIVER,
-    ):
+    ) as mock_discover:
         result = await hass.config_entries.flow.async_configure(
             result["flow_id"],
             {},
         )
+
+    # The library closes a zeroconf instance it opened itself, which in HA is
+    # the shared one, so discovery must be handed HA's instances.
+    mock_discover.assert_awaited_once_with(
+        async_zeroconf=await zeroconf.async_get_async_instance(hass),
+        async_client=get_async_client(hass),
+    )
 
     assert result["type"] is FlowResultType.CREATE_ENTRY
     assert result["title"] == TEST_NAME
